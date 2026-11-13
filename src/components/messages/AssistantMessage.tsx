@@ -4,16 +4,16 @@ import { memo } from 'react'
 import { IconRefreshOutline16, IconWarningOutline16 } from '../base/icons.js'
 import { describeReply } from '../../services/chat/describe.js'
 import { canContinueReply } from '../../services/chat/reply.js'
-import { continueReply, regenerateReply } from '../../services/chat/store.js'
+import { canContinueWithPreset, continueReply, regenerateReply } from '../../services/chat/store.js'
 import { stopReadAloud } from '../../services/speech/readAloud.js'
 import type { AssistantMessage as AssistantMessageType } from '../../services/chat/types.js'
-import { openSettings } from '../settings/settingsDialogState.js'
+import { navigateHost } from '../../services/sub2apiBridge.js'
+import { useChatModels } from '../../services/chat/models.js'
 import { IconButton } from '../base/IconButton.js'
 import { Button } from '../base/Button.js'
 import { Markdown } from '../markdown/Markdown.js'
 import { SiteThumbnails } from '../search/SiteLogo.js'
 import { toggleSearchPanel, useSearchPanel } from '../search/searchPanelState.js'
-import { ReadAloudButton } from './ReadAloudButton.js'
 import { CopyButton } from './CopyButton.js'
 import { ReplyArea } from './ReplyArea.js'
 import { useReplyView } from './useReplyView.js'
@@ -24,7 +24,6 @@ import {
 } from './BranchSwitcher.js'
 import styles from './AssistantMessage.module.css'
 
-const TOP_UP_URL = 'https://platform.deepseek.com/top_up'
 
 export const AssistantMessage = memo(function AssistantMessage({
   sessionId,
@@ -44,6 +43,7 @@ export const AssistantMessage = memo(function AssistantMessage({
   onSelectVersion: SelectMessageVersion
 }) {
   const t = useTranslate()
+  useChatModels((state) => state.presets)
   const view = useReplyView(message, streaming)
   const panelEntry = useSearchPanel((state) => state.entry)
   const notice = streaming ? null : describeReply(message)
@@ -96,29 +96,28 @@ export const AssistantMessage = memo(function AssistantMessage({
           <IconWarningOutline16 />
           <span>
             {notice.text}
-            {notice.action === 'apiKey' ? (
+            {notice.action === 'models' ? (
               <>
                 {' '}
                 <button
                   type="button"
                   className={styles.noticeAction}
-                  onClick={() => openSettings('data')}
+                  onClick={() => void navigateHost('/chat-models')}
                 >
-                  {t('changeApiKey')}
+                  {t('chatModelManage')}
                 </button>
               </>
             ) : null}
             {notice.action === 'topUp' ? (
               <>
                 {' '}
-                <a
+                <button
+                  type="button"
                   className={styles.noticeAction}
-                  href={TOP_UP_URL}
-                  target="_blank"
-                  rel="noreferrer"
+                  onClick={() => void navigateHost('/dashboard')}
                 >
                   {t('topUp')}
-                </a>
+                </button>
               </>
             ) : null}
           </span>
@@ -143,9 +142,6 @@ export const AssistantMessage = memo(function AssistantMessage({
           <BranchSwitcher versions={versions} disabled={busy} onSelect={onSelectVersion} />
           <div className={clsx(styles.actions, isLast && styles.alwaysShow)}>
             {copyText ? <CopyButton text={copyText} /> : null}
-            {responseText && !refused ? (
-              <ReadAloudButton messageId={message.id} text={responseText} />
-            ) : null}
             <IconButton
               icon={<IconRefreshOutline16 />}
               tooltip={t('regenerate')}
@@ -162,7 +158,8 @@ export const AssistantMessage = memo(function AssistantMessage({
               variant="outlined"
               size="s"
               className={styles.continueButton}
-              disabled={busy}
+              disabled={busy || !canContinueWithPreset(message)}
+              title={!canContinueWithPreset(message) ? t('chatContinueUnavailable') : undefined}
               onClick={() => {
                 stopReadAloud()
                 continueReply(sessionId, message.id)

@@ -9,14 +9,11 @@ import type {
   TextCitation,
 } from '../api/types.js'
 
-/**
- * 消息附件。id 是本地标识（IndexedDB files 表的主键，原件按它存储，所有引用同一 id 的消息共用一份），
- * 导入的附件沿用导出产物里的文件 ID；本地没有原件的附件只展示文件名，不进入请求。
- * serverId 是 Files API 返回的 file_id，导入的数据或尚未上传成功的文件为 null，发送前补传。
- */
+/** id is the private service attachment UUID, never an upstream file ID. Missing archive originals remain metadata only. */
 export type FileAttachment = {
   id: string
   serverId: string | null
+  unavailable?: boolean
   name: string
   size: number
   /** 附件类别；导入时沿用归档的 is_image，不由 MIME 识别结果决定。 */
@@ -74,6 +71,10 @@ export type ReplyStatus = 'pending' | 'streaming' | 'done' | 'stopped' | 'error'
 export type AssistantMessage = MessageBranch & {
   id: string
   role: 'assistant'
+  presetId?: string
+  groupId?: number
+  /** Server-owned neutral generation options; preserved verbatim and never used to inject upstream fields. */
+  chatOptions?: Readonly<Record<string, unknown>>
   createdAt: number
   /** 未记录模型时为 null，续写使用当前默认模型。 */
   model: ChatModel | null
@@ -97,6 +98,7 @@ export type AssistantMessage = MessageBranch & {
     kind: ApiErrorKind | 'upload'
     message: string
     status?: number
+    code?: string
     localMessage?: TranslationMessage
     /** 仅 upload：重新上传是否可能成功（网络、限流、服务端繁忙）；过大、格式不支持为 false */
     retryable?: boolean
@@ -110,6 +112,7 @@ export type Session = {
   title: string
   createdAt: number
   updatedAt: number
+  presetId?: string
   /** 包含所有分支的消息，按创建顺序存储。 */
   messages: Message[]
   /** undefined 表示线性消息列表；null 表示空会话。 */

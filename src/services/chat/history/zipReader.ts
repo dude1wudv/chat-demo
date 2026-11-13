@@ -3,6 +3,8 @@ import { Inflate } from 'fflate'
 const READ_CHUNK_BYTES = 256 * 1024
 // 控制每轮同步解压的工作量；输出交给调用方保存后才继续读取。
 const INFLATE_CHUNK_BYTES = 8 * 1024
+const MAX_ARCHIVE_BYTES = 2 * 1024 ** 3
+const MAX_ENTRY_BYTES = 64 * 1024 ** 2
 
 /** ZIP 结构损坏或使用了不支持的特性 */
 export class ArchiveError extends Error {
@@ -120,6 +122,7 @@ const readDirectory = async (file: File): Promise<{ entries: Entry[]; offset: nu
   const entries: Entry[] = []
   const paths = new Set<string>()
   let cursor = 0
+  let totalBytes = 0
   for (let index = 0; index < count; index++) {
     if (cursor + 46 > size) {
       invalid()
@@ -132,6 +135,8 @@ const readDirectory = async (file: File): Promise<{ entries: Entry[]; offset: nu
     const method = view.getUint16(10, true)
     const compressedSize = view.getUint32(20, true)
     const entrySize = view.getUint32(24, true)
+    totalBytes += entrySize
+    if (entrySize > MAX_ENTRY_BYTES || totalBytes > MAX_ARCHIVE_BYTES || (entrySize > 1024 * 1024 && entrySize / Math.max(1, compressedSize) > 1000)) invalid()
     const nameLength = view.getUint16(28, true)
     const extraLength = view.getUint16(30, true)
     const next = cursor + 46 + nameLength + extraLength + view.getUint16(32, true)

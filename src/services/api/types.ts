@@ -4,7 +4,7 @@
  * 声明 deepseek_web_search / deepseek_read_url 或设置 safety_check.level 为 high 时进入扩展模式。
  */
 
-export type ChatModel = 'deepseek-flash' | 'deepseek-v4-pro'
+export type ChatModel = string
 
 // ---------- 响应：内容块 ----------
 
@@ -160,27 +160,6 @@ export type MessageParam =
   | { role: 'user'; content: string | (FileBlockParam | TextBlockParam)[] }
   | { role: 'assistant'; content: AssistantBlockParam[] }
 
-/** 开启联网搜索与边想边搜 */
-export type DeepseekWebSearchTool = {
-  type: 'deepseek_web_search'
-  name: 'deepseek_web_search'
-}
-
-/** 阅读本轮用户消息中的链接，与搜索工具独立声明 */
-export type DeepseekReadUrlTool = {
-  type: 'deepseek_read_url'
-  name: 'deepseek_read_url'
-}
-
-export type CreateMessageRequest = {
-  model: ChatModel
-  system: string
-  messages: MessageParam[]
-  thinking: { type: 'enabled' | 'disabled' }
-  tools: (DeepseekWebSearchTool | DeepseekReadUrlTool)[]
-  safety_check: { level: 'high' }
-  title?: { enabled: boolean }
-}
 
 // ---------- 响应：流式事件 ----------
 
@@ -238,23 +217,3 @@ export type MessageStreamEvent =
  * 纯文本、代码、表格与电子书不需要解析，用 user_data。
  */
 export type FilePurpose = 'rich_layout_recognition' | 'user_data'
-
-/** POST /anthropic/v1/files 的响应 */
-export type FileObject = {
-  id: string
-  type: 'file'
-  size_bytes: number
-  created_at: string
-  filename: string
-  mime_type: string
-}
-
-/** 非 2xx 响应体；流中出现只含 error 的无名 data 帧时同样按此解析 */
-export type ApiErrorBody = {
-  error: {
-    message: string
-    type?: string
-    param?: string | null
-    code?: string | null
-  }
-}

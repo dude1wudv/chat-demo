@@ -1,6 +1,8 @@
+import { sub2apiBridge } from './sub2apiBridge.js'
+import { deferred } from '../utils/deferred.js'
 import { create } from 'zustand'
 import type { LinkedMessage, TranslationMessage } from '../i18n/index.js'
-import { uploadFile } from './api/client.js'
+import { ApiError, uploadFile, type ChatAttachment } from './api/client.js'
 import { classifyApiError, getUploadErrorInfo, isRetryableApiError } from './api/errors.js'
 import type { FilePurpose } from './api/types.js'
 import { ACCEPT_FILE_EXTS } from './uploadExts.js'
@@ -68,6 +70,7 @@ export const describeUploadError = (error: unknown): TranslationMessage => {
   if (getUploadErrorInfo(error)?.code === 'parseFailed') {
     return { key: 'uploadParseFailed' }
   }
+  if (error instanceof ApiError && error.message) return { key: 'uploadDetailedError', params: { message: error.message } }
   return { key: 'uploadFileStatusFailed' }
 }
 
@@ -82,18 +85,14 @@ export const onUploadNotice = (listener: NoticeListener) => {
   }
 }
 
-/** 删除已上传文件的接口文档 */
-const DELETE_FILE_DOCS_URL = 'https://api-docs.deepseek.com/api/delete-file'
-
 /** 文件数或存储空间达到上限：附件上只放得下「上传失败」，原因另用 toast 说明并引导删除旧文件 */
 export const describeUploadQuota = (error: unknown): LinkedMessage | undefined => {
   const info = getUploadErrorInfo(error)
-  const link = { key: 'uploadDeleteFiles', href: DELETE_FILE_DOCS_URL } as const
   if (info?.code === 'fileCountLimit') {
-    return { type: 'error', key: 'uploadFileCountLimit', params: { limit: info.limit ?? '' }, link }
+    return { type: 'error', key: 'uploadFileCountLimit', params: { limit: info.limit ?? '' } }
   }
   if (info?.code === 'storageLimit') {
-    return { type: 'error', key: 'uploadStorageLimit', params: { limit: info.limit ?? '' }, link }
+    return { type: 'error', key: 'uploadStorageLimit', params: { limit: info.limit ?? '' } }
   }
   return undefined
 }
@@ -118,13 +117,12 @@ const next = () => {
 
 /** 排队上传，最多同时上传 MAX_CONCURRENT 个；排队期间中止的任务不会发出请求 */
 const enqueueUpload = (
-  apiKey: string,
   file: Blob,
   name: string,
   isImage: boolean,
   signal: AbortSignal
-) =>
-  new Promise<string>((resolve, reject) => {
+) => {
+    const { promise, resolve, reject } = deferred<ChatAttachment>()
     queue.push(async () => {
       if (signal.aborted) {
         reject(signal.reason)
@@ -132,13 +130,14 @@ const enqueueUpload = (
       }
       try {
         const body = file instanceof File ? file : new File([file], name, { type: file.type })
-        resolve((await uploadFile(apiKey, body, getUploadPurpose(name, isImage), signal)).id)
+        resolve(await uploadFile(body, getUploadPurpose(name, isImage), signal))
       } catch (error) {
         reject(error)
       }
     })
     next()
-  })
+    return promise
+  }
 
 /**
  * 上传任务按附件的本地 id 登记：输入框选中即开始上传，全部成功后携带 serverId 发送，
@@ -147,7 +146,7 @@ const enqueueUpload = (
  */
 export type UploadTask =
   | { status: 'uploading' }
-  | { status: 'done'; serverId: string }
+  | { status: 'done'; serverId: string; attachment: ChatAttachment }
   | { status: 'error'; error: TranslationMessage; retryable: boolean }
 
 type UploadState = { tasks: Record<string, UploadTask> }
@@ -165,7 +164,6 @@ const pending = new Map<string, { promise: Promise<string>; controller: AbortCon
 
 /** 开始（或复用进行中的）上传，返回服务端 file_id；失败时任务记为 error 并抛出原错误 */
 export const uploadAttachment = (
-  apiKey: string,
   id: string,
   blob: Blob,
   name: string,
@@ -177,10 +175,11 @@ export const uploadAttachment = (
   }
   const controller = new AbortController()
   setTask(id, { status: 'uploading' })
-  const promise = enqueueUpload(apiKey, blob, name, isImage, controller.signal)
-    .then((serverId) => {
-      setTask(id, { status: 'done', serverId })
-      return serverId
+  const promise = enqueueUpload(blob, name, isImage, controller.signal)
+    .then((attachment) => {
+      controller.signal.throwIfAborted()
+      setTask(id, { status: 'done', serverId: attachment.id, attachment })
+      return attachment.id
     })
     .catch((error: unknown) => {
       if (controller.signal.aborted) {
@@ -243,3 +242,8 @@ export const formatSize = (bytes: number) => {
   }
   return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`
 }
+
+sub2apiBridge.onDisconnect(() => {
+  for (const task of pending.values()) task.controller.abort()
+  useUploads.setState({ tasks: {} })
+})

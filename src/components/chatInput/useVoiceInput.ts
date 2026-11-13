@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { TranslationMessage } from '../../i18n/index.js'
-import { transcribe } from '../../services/api/speech.js'
+import { VOICE_ENABLED, transcribe } from '../../services/api/speech.js'
 import { startRecording, type Recording } from '../../services/speech/recorder.js'
-import { useSettings } from '../../services/settings.js'
 import { showToast } from '../base/toastState.js'
 
 export type VoiceInputStatus = 'idle' | 'recording' | 'transcribing'
@@ -11,7 +10,7 @@ export type VoiceInputStatus = 'idle' | 'recording' | 'transcribing'
  * 录音依赖 getUserMedia，只在安全上下文可用（HTTPS、localhost、file://）。
  * 普通 HTTP 页面上直接禁用入口，避免点击后必然失败。
  */
-const AVAILABLE = typeof window === 'undefined' || window.isSecureContext
+const AVAILABLE = VOICE_ENABLED && typeof window !== 'undefined' && window.isSecureContext
 
 const describeRecordingError = (error: unknown): TranslationMessage => {
   if (error instanceof DOMException) {
@@ -75,7 +74,7 @@ export const useVoiceInput = (onText: (text: string) => void) => {
       controller = new AbortController()
       controllerRef.current = controller
       setStatus('transcribing')
-      const text = await transcribe(useSettings.getState().apiKey ?? '', audio, controller.signal)
+      const text = await transcribe('', audio, controller.signal)
       if (controller.signal.aborted || operationRef.current !== operation) {
         return
       }

@@ -1,4 +1,15 @@
-import { ApiError, API_ORIGIN, request } from './client.js'
+import { ApiError } from './client.js'
+
+export const VOICE_ENABLED: boolean = false
+const assertVoiceEnabled = () => {
+  if (!VOICE_ENABLED) throw new ApiError('protocol', '站内聊天暂不支持语音')
+}
+const request = async (url: string, init: RequestInit): Promise<Response> => {
+  assertVoiceEnabled()
+  const response = await fetch(url, init)
+  if (!response.ok) throw new ApiError('http', await response.text(), response.status)
+  return response
+}
 
 /**
  * 语音接口：
@@ -6,7 +17,7 @@ import { ApiError, API_ORIGIN, request } from './client.js'
  * - TTS：POST /v1/tools/tts，返回音频字节流（产出首帧后即返回 200）
  * 鉴权都用 Authorization: Bearer。
  */
-const TOOLS_BASE_URL = `${API_ORIGIN}/v1/tools`
+const TOOLS_BASE_URL = '/v1/tools'
 
 export type TtsVoice = 'stella' | 'tide'
 
@@ -19,6 +30,7 @@ export const transcribe = async (
   audio: Blob,
   signal?: AbortSignal
 ): Promise<string> => {
+  assertVoiceEnabled()
   const form = new FormData()
   form.append('file', audio, 'recording.wav')
   const response = await request(`${TOOLS_BASE_URL}/asr`, {
@@ -52,6 +64,7 @@ export const synthesize = async (
   voice: TtsVoice,
   signal: AbortSignal
 ): Promise<ReadableStream<Uint8Array>> => {
+  assertVoiceEnabled()
   const response = await request(`${TOOLS_BASE_URL}/tts`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },

@@ -1,189 +1,110 @@
 import { translate, type TranslationMessage } from '../../i18n/index.js'
+import { BridgeError, sub2apiBridge } from '../sub2apiBridge.js'
+import type { BridgeChunk } from '../sub2apiBridgeContract.js'
 import { readMessageEvent } from './parseEvent.js'
-import { readServerSentEvents } from './sse.js'
-import type {
-  ApiErrorBody,
-  CreateMessageRequest,
-  FileObject,
-  FilePurpose,
-  MessageStreamEvent,
-} from './types.js'
+import { ServerSentEventDecoder } from './sse.js'
+import type { FilePurpose, MessageStreamEvent } from './types.js'
 
-/** 构建期 API 地址，默认 https://api.deepseek.com；本地开发支持开发服务器代理 */
-export const API_ORIGIN = __API_ORIGIN__
-/** Anthropic 兼容接口的前缀 */
-const ANTHROPIC_BASE_URL = `${API_ORIGIN}/anthropic/v1`
-/** 引用 Files API 上传的图片、调用 Anthropic 兼容 Files API 时必须携带 */
-const FILES_BETA = 'files-api-2025-04-14'
-
-export type ApiErrorKind =
-  /** 非 2xx 响应 */
-  | 'http'
-  /** 流中返回的错误帧（如等待生成超时），随后连接关闭 */
-  | 'stream'
-  /** 请求没有到达服务端（断网、跨域被拦截等） */
-  | 'network'
-  /** 流在 message_stop 之前结束 */
-  | 'interrupted'
-  /** 响应不符合协议（如非 SSE 响应） */
-  | 'protocol'
-
+export type ApiErrorKind = 'http' | 'stream' | 'network' | 'interrupted' | 'protocol'
 export class ApiError extends Error {
   readonly localMessage?: TranslationMessage
-
-  constructor(
-    readonly kind: ApiErrorKind,
-    message: string | TranslationMessage,
-    readonly status?: number
-  ) {
+  constructor(readonly kind: ApiErrorKind, message: string | TranslationMessage, readonly status?: number, readonly code?: string) {
     super(typeof message === 'string' ? message : translate(message.key, message.params))
     this.name = 'ApiError'
     this.localMessage = typeof message === 'string' ? undefined : message
   }
 }
-
-const isErrorBody = (value: unknown): value is ApiErrorBody =>
-  typeof value === 'object' &&
-  value !== null &&
-  'error' in value &&
-  typeof (value as ApiErrorBody).error?.message === 'string'
-
-const readErrorResponse = async (
-  response: Response,
-  kind: 'http' | 'protocol' = 'http',
-  fallback = response.statusText
-): Promise<ApiError> => {
-  const text = await response.text().catch(() => '')
-  let message = text || fallback
+export type ChatAttachment = { id: string; name: string; size: number; isImage: boolean; mimeType: string }
+export const uploadFile = async (file: File, purpose: FilePurpose | null, signal?: AbortSignal): Promise<ChatAttachment> => {
   try {
-    const body: unknown = JSON.parse(text)
-    if (isErrorBody(body)) {
-      message = body.error.message
-    }
-  } catch {
-    // 非 JSON 响应体直接展示原文
-  }
-  return new ApiError(kind, message, response.status)
-}
-
-export const request = async (url: string, init: RequestInit): Promise<Response> => {
-  let response: Response
-  try {
-    response = await fetch(url, init)
+    const result = await sub2apiBridge.request<ChatAttachment>('upload', {
+      path: '/attachments', body: file, filename: file.name, ...(purpose ? { purpose } : {}),
+    }, signal)
+    if (!result?.id || typeof result.mimeType !== 'string' || typeof result.size !== 'number') throw new ApiError('protocol', '附件上传响应无效')
+    return result
   } catch (error) {
-    if (init.signal?.aborted) {
-      throw error
-    }
-    throw new ApiError('network', error instanceof Error ? error.message : String(error))
+    if (error instanceof BridgeError) throw new ApiError(error.status ? 'http' : 'network', error.message, error.status, error.code)
+    throw error
   }
-  if (!response.ok) {
-    throw await readErrorResponse(response)
+}
+export type GenerateRequest = {
+  preset_id: string
+  assistant_message_id: string
+  expected_revision: number
+  operation: 'send' | 'regenerate' | 'continue'
+  request_id: string
+}
+export type ChatStreamEvent = MessageStreamEvent | { type: 'chat_run'; run_id: string } | { type: 'chat_saved'; revision: number }
+export const readChatEvent = (value: unknown): ChatStreamEvent | null => {
+  if (!value || typeof value !== 'object') return null
+  const data = value as Record<string, unknown>
+  if (data.type === 'error' || data.error) {
+    const error = (data.error ?? data) as { message?: string; code?: string; status?: number }
+    throw new BridgeError(error.message ?? '生成失败', error.code, error.status)
   }
-  return response
+  if (data.type === 'chat_run') {
+    if (typeof data.run_id !== 'string') throw new ApiError('protocol', '生成状态缺少 run_id')
+    return { type: 'chat_run', run_id: data.run_id }
+  }
+  if (data.type === 'chat_saved') {
+    if (!Number.isSafeInteger(data.revision) || (data.revision as number) < 1) throw new ApiError('protocol', '保存事件缺少修订号')
+    return { type: 'chat_saved', revision: data.revision as number }
+  }
+  return readMessageEvent(value)
 }
 
-const anthropicHeaders = (apiKey: string, beta: boolean): Record<string, string> => ({
-  // DeepSeek 兼容接口的鉴权方式，也可使用 Authorization: Bearer。
-  'x-api-key': apiKey,
-  // Files API 和通过 file_id 引用图片时必传；纯文本聊天无需携带。
-  ...(beta ? { 'anthropic-beta': FILES_BETA } : {}),
-})
-
-/** 用 GET /models 校验 API Key（不产生费用） */
-export const verifyApiKey = async (apiKey: string, signal?: AbortSignal): Promise<void> => {
-  await request(`${API_ORIGIN}/models`, {
-    method: 'GET',
-    headers: { Authorization: `Bearer ${apiKey}` },
-    signal,
-  })
-}
-
-/**
- * POST /anthropic/v1/files 上传附件（不设过期时间，会话里的历史附件一直可用）。
- * purpose 为 null 时不传该字段（图片）；purpose 必须排在 file 之前。
- */
-export const uploadFile = async (
-  apiKey: string,
-  file: File,
-  purpose: FilePurpose | null,
-  signal?: AbortSignal
-): Promise<FileObject> => {
-  const form = new FormData()
-  if (purpose) {
-    form.append('purpose', purpose)
+/** Handles raw UTF-8/CRLF fragments as well as a host that has already decoded individual events. */
+export async function* decodeChatStream(chunks: AsyncIterable<BridgeChunk>): AsyncGenerator<ChatStreamEvent> {
+  const utf8 = new TextDecoder()
+  const sse = new ServerSentEventDecoder()
+  let saved = false
+  let terminal = false
+  let streamError: BridgeError | undefined
+  const read = (value: unknown) => {
+    try { return readChatEvent(value) } catch (error) {
+      if (!(error instanceof BridgeError)) throw error
+      streamError = error
+      return null
+    }
   }
-  form.append('file', file)
-  const response = await request(`${ANTHROPIC_BASE_URL}/files`, {
-    method: 'POST',
-    headers: anthropicHeaders(apiKey, true),
-    body: form,
-    signal,
-  })
-  return (await response.json()) as FileObject
-}
-
-/** DELETE /anthropic/v1/files/{file_id} */
-export const deleteFile = async (apiKey: string, fileId: string): Promise<void> => {
-  await request(`${ANTHROPIC_BASE_URL}/files/${encodeURIComponent(fileId)}`, {
-    method: 'DELETE',
-    headers: anthropicHeaders(apiKey, true),
-  })
-}
-
-const hasFile = (body: CreateMessageRequest) =>
-  body.messages.some(
-    (message) =>
-      typeof message.content !== 'string' &&
-      message.content.some((block) => block.type === 'image' || block.type === 'document')
-  )
-
-/**
- * POST /anthropic/v1/messages（stream: true），逐个产出流式事件，收到 message_stop 时结束。
- * ping、保活注释与无法解析的内容不产出；中止请求时抛出 signal 的 AbortError。
- */
-export async function* streamMessage(
-  apiKey: string,
-  body: CreateMessageRequest,
-  signal: AbortSignal
-): AsyncGenerator<MessageStreamEvent> {
-  const response = await request(`${ANTHROPIC_BASE_URL}/messages`, {
-    method: 'POST',
-    headers: {
-      ...anthropicHeaders(apiKey, hasFile(body)),
-      'Content-Type': 'application/json',
-      Accept: 'text/event-stream',
-    },
-    body: JSON.stringify({ ...body, stream: true }),
-    signal,
-  })
-  const contentType = response.headers.get('Content-Type') ?? ''
-  if (!response.body || !contentType.includes('text/event-stream')) {
-    throw await readErrorResponse(response, 'protocol', '')
+  const parse = (data: string, name: string): ChatStreamEvent | null => {
+    if (data === '[DONE]') return null
+    let value: unknown
+    try { value = JSON.parse(data) } catch { throw new ApiError('protocol', '生成事件不是有效 JSON') }
+    if (value && typeof value === 'object' && !('type' in value)) value = { ...value, type: name }
+    return read(value)
   }
-  for await (const { event: eventName, data } of readServerSentEvents(response.body, signal)) {
-    let payload: unknown
-    try {
-      payload = JSON.parse(data)
-    } catch {
-      if (eventName !== 'error') {
-        continue
-      }
-    }
-    if (isErrorBody(payload)) {
-      throw new ApiError('stream', payload.error.message)
-    }
-    if (eventName === 'error') {
-      throw new ApiError('stream', data)
-    }
-    const event = readMessageEvent(payload)
-    if (!event) {
+  const accept = (event: ChatStreamEvent | null) => {
+    if (event?.type === 'chat_saved') saved = true
+    if (event?.type === 'message_stop') terminal = true
+    return event
+  }
+  for await (const chunk of chunks) {
+    if (typeof chunk === 'object' && !(chunk instanceof ArrayBuffer) && !ArrayBuffer.isView(chunk)) {
+      const event = accept(read(chunk))
+      if (event) yield event
       continue
     }
-    yield event
-    if (event.type === 'message_stop') {
-      return
+    const text = typeof chunk === 'string' ? chunk : utf8.decode(chunk as AllowSharedBufferSource, { stream: true })
+    for (const frame of sse.push(text)) {
+      const event = accept(parse(frame.data, frame.event))
+      if (event) yield event
     }
   }
-  // 服务端没有提供错误内容时保持为空，不推测断流原因。
-  throw new ApiError('interrupted', '')
+  for (const frame of [...sse.push(utf8.decode()), ...sse.end()]) {
+    const event = accept(parse(frame.data, frame.event))
+    if (event) yield event
+  }
+  if (streamError) throw streamError
+  if (!saved || !terminal) throw new ApiError('interrupted', !saved ? '回复尚未确认云端保存，请重新载入会话' : '生成流缺少结束事件')
+}
+
+/** A paid generation is never retried automatically, including uncertain errors before the first token. */
+export async function* streamMessage(sessionId: string, body: GenerateRequest, signal: AbortSignal): AsyncGenerator<ChatStreamEvent> {
+  try {
+    yield* decodeChatStream(sub2apiBridge.stream({ path: `/sessions/${encodeURIComponent(sessionId)}/generate`, body }, signal))
+  } catch (error) {
+    if (error instanceof BridgeError && error.code !== 'CHAT_REVISION_CONFLICT') throw new ApiError(error.status ? 'http' : 'stream', error.message, error.status, error.code)
+    throw error
+  }
 }

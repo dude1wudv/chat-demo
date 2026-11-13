@@ -1,0 +1,12 @@
+.row { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 4px 8px 10px; }
+.picker { position: relative; min-width: 0; max-width: 100%; font-size: 13px; }
+.picker summary { cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; padding: 4px 0; }
+.picker summary[aria-disabled='true'] { opacity: .6; cursor: default; }
+.menu { position: absolute; bottom: 100%; left: 0; width: min(340px, 78vw); padding: 12px; background: var(--ds-elevated-bg, Canvas); color: var(--ds-text-primary, CanvasText); border: 1px solid color-mix(in srgb, currentColor 18%, transparent); border-radius: 12px; box-shadow: 0 6px 24px #0002; z-index: 20; }
+.menu input { width: 100%; box-sizing: border-box; padding: 8px; border: 1px solid color-mix(in srgb, currentColor 25%, transparent); border-radius: 6px; background: transparent; color: inherit; }
+.options { max-height: 260px; overflow-y: auto; margin: 8px 0; }
+.menu button { display: flex; flex-direction: column; gap: 3px; width: 100%; padding: 8px; border: 0; border-radius: 6px; background: transparent; color: inherit; text-align: left; cursor: pointer; overflow-wrap: anywhere; }
+.menu button:hover, .menu button[aria-selected='true'] { background: color-mix(in srgb, currentColor 9%, transparent); }
+.menu button:disabled { opacity: .55; cursor: not-allowed; }
+.options span { font-size: 12px; }
+.warning { font-size: 12px; color: #a66016; }

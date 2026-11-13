@@ -7,7 +7,7 @@ export type Notice = {
   /** 模板答复使用正文样式；其余统一为红色错误提示。 */
   presentation?: 'response'
   /** 需要用户处理的问题附带的操作 */
-  action?: 'apiKey' | 'topUp'
+  action?: 'models' | 'topUp'
 }
 
 const getTemplateText = (reply: AssistantMessage) =>
@@ -25,6 +25,7 @@ export const describeReply = (reply: AssistantMessage): Notice | null => {
         ? translate(localMessage.key, localMessage.params)
         : reply.error.message
     // 历史补传错误刷新后仍需说明原因，恢复沿用附件卡片或重新生成。
+    if (reply.error.code === 'CHAT_CREDENTIAL_UNAVAILABLE' || reply.error.code === 'CHAT_PRESET_UNAVAILABLE') return { text: message, action: 'models' }
     if (kind === 'upload') {
       return { text: message || translate('uploadFileStatusFailed') }
     }
@@ -33,7 +34,7 @@ export const describeReply = (reply: AssistantMessage): Notice | null => {
     }
     switch (classifyStatus(status)) {
       case 'unauthorized':
-        return { text: translate('replyInvalidApiKey'), action: 'apiKey' }
+        return { text: '登录或聊天连接已失效，请返回用户中心重新连接', action: 'models' }
       case 'insufficientBalance':
         return { text: translate('replyInsufficientBalance'), action: 'topUp' }
       case 'rateLimited':

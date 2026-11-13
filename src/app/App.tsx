@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useTranslate } from '../i18n/index.js'
 import { useSettings } from '../services/settings.js'
 import { useIsMobile, useMobileViewport, usePreventPageScroll } from './viewport.js'
@@ -6,6 +6,7 @@ import {
   bindChatPersistence,
   initChat,
   retrySaveSessions,
+  reloadActiveSession,
   selectSession,
   useChatStore,
 } from '../services/chat/store.js'
@@ -14,7 +15,6 @@ import { closeSearchPanel } from '../components/search/searchPanelState.js'
 import { SessionView } from '../components/session/SessionView.js'
 import { MobileHeader } from '../components/session/MobileHeader.js'
 import { Welcome } from '../components/session/Welcome.js'
-import { ensureApiKey } from '../components/settings/settingsDialogState.js'
 import { SettingsDialog } from '../components/settings/SettingsDialog.js'
 import { Toast } from '../components/base/Toast.js'
 import { showToast } from '../components/base/toastState.js'
@@ -24,10 +24,20 @@ import { stopReadAloud } from '../services/speech/readAloud.js'
 import { CollapsedSider } from '../components/sider/CollapsedSider.js'
 import { closeMobileSider } from '../components/sider/mobileSiderState.js'
 import { MobileSider, Sider } from '../components/sider/Sider.js'
+import { sub2apiBridge, navigateHost } from '../services/sub2apiBridge.js'
+import { useChatModels } from '../services/chat/models.js'
+import { retrySavePreferences } from '../services/settings.js'
 import styles from './App.module.css'
 
 export const App = () => {
   const t = useTranslate()
+  const connected = useChatModels((state) => state.connected)
+  const [cloudError, setCloudError] = useState('')
+  useEffect(() => {
+    const onError = (event: Event) => setCloudError(String((event as CustomEvent<unknown>).detail))
+    window.addEventListener('chat:storage-error', onError)
+    return () => window.removeEventListener('chat:storage-error', onError)
+  }, [])
   const isMobile = useIsMobile()
   const locale = useSettings((state) => state.locale)
   // 移动端侧边栏以独立抽屉管理开合状态
@@ -69,15 +79,21 @@ export const App = () => {
 
   useEffect(() => {
     void initChat()
-    // 首次打开先在设置里输入 API Key
-    ensureApiKey()
   }, [])
+
+  if (initError && !connected) return <main role="alert" style={{ padding: 32 }}><h1>{t('chatHostRequired')}</h1><p>{t('chatHostExplanation')}</p></main>
 
   return (
     <>
       <div ref={frameRef} className={styles.frame}>
         {isMobile ? <MobileSider /> : siderCollapsed ? null : <Sider />}
         <main className={styles.main}>
+          <nav aria-label={t('chatModels')} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '8px 16px' }}>
+            <Button variant="outlined" size="s" disabled={!connected} onClick={() => void navigateHost('/dashboard')}>{t('chatDashboard')}</Button>
+            <Button variant="outlined" size="s" disabled={!connected} onClick={() => void navigateHost('/chat-models')}>{t('chatModels')}</Button>
+            <Button variant="outlined" size="s" disabled={!connected} onClick={() => { void sub2apiBridge.request('logout', {}).finally(() => sub2apiBridge.disconnect()).catch(() => {}) }}>{t('chatLogout')}</Button>
+          </nav>
+          {cloudError ? <div className={styles.saveError} role="alert"><span>{cloudError}</span><button type="button" onClick={() => { setCloudError(''); void reloadActiveSession() }}>{t('chatReload')}</button><button type="button" onClick={() => { setCloudError(''); void retrySavePreferences() }}>{t('chatRetryPreferences')}</button><button type="button" onClick={() => setCloudError('')}>{t('close')}</button></div> : null}
           {saveError ? (
             <div className={styles.saveError} role="alert">
               <span>{t('sessionSaveFailed')}</span>

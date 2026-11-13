@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { defineConfig } from '@rspack/cli'
 import { rspack, type Configuration } from '@rspack/core'
 
-const dev = process.env.NODE_ENV !== 'production'
+const dev = process.env.NODE_ENV === 'development' || process.argv.includes('serve')
 const targets = ['chrome >= 105', 'edge >= 105', 'safari >= 16', 'firefox >= 110']
 const root = path.dirname(fileURLToPath(import.meta.url))
 const { version } = JSON.parse(
@@ -17,23 +17,20 @@ const cssLoader = {
 }
 
 type ConfigOptions = {
-  /** 公开 API 的地址，注入为 __API_ORIGIN__ */
-  apiOrigin?: string
   /** 开发服务器配置，支持本地接口代理 */
   devServer?: Configuration['devServer']
 }
 
 /** 创建构建配置，支持自定义 API 地址和开发服务器选项 */
 export const createConfig = ({
-  apiOrigin = 'https://api.deepseek.com',
   devServer,
 }: ConfigOptions = {}): Configuration => ({
   mode: dev ? 'development' : 'production',
   entry: './src/main.tsx',
   output: {
     path: path.resolve(root, 'dist'),
-    // 运行时按当前脚本地址推导资源路径，file:// 下异步 chunk、字体都按相对位置加载
-    publicPath: 'auto',
+    // Same-origin protected host serves the fork at this fixed asset prefix.
+    publicPath: '/chat-app/',
     filename: 'static/js/[name].[contenthash:8].js',
     chunkFilename: 'static/js/async/[name].[contenthash:8].js',
     cssFilename: 'static/css/[name].[contenthash:8].css',
@@ -80,7 +77,6 @@ export const createConfig = ({
       scriptLoading: 'defer',
       meta: { 'application-version': version },
     }),
-    new rspack.DefinePlugin({ __API_ORIGIN__: JSON.stringify(apiOrigin) }),
     new rspack.CopyRspackPlugin({
       patterns: [{ from: path.resolve(root, 'LICENSE'), to: 'LICENSE', toType: 'file' }],
     }),

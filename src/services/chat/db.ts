@@ -1,251 +1,294 @@
-import { openDB, type DBSchema, type IDBPDatabase } from 'idb'
+import { openDB, deleteDB, type IDBPDatabase } from 'idb'
+import { BridgeError, chatJson, downloadAttachment, sub2apiBridge } from '../sub2apiBridge.js'
 import { toSessionSummary, type Session, type SessionSummary } from './types.js'
 
-/** IndexedDB 存储结构版本；新增或调整存储、索引时递增。 */
-const DB_VERSION = 11
-
-/** 文件原件按附件的本地 id 存储，所有引用同一 id 的消息共用一份；用于缩略图、打开查看，以及没有 serverId 时补传。 */
-export type StoredFile = {
-  id: string
-  blob: Blob
-}
-
-/** 文件引用留在摘要中，删除会话时通过索引判断原件是否仍被引用。 */
-type StoredSessionSummary = SessionSummary & { fileIds: string[] }
-
-interface ChatDB extends DBSchema {
-  /** 当前使用的会话，界面读写都在这里 */
-  sessions: { key: string; value: Session }
-  sessionSummaries: {
-    key: string
-    value: StoredSessionSummary
-    indexes: { fileIds: string }
+export type StoredFile = { id: string; blob: Blob }
+type SessionResult = { session: Session; revision: number }
+type SessionPage = { items: SessionSummary[]; next_cursor: string | null }
+const revisions = new Map<string, number>()
+const aliases = new Map<string, string | null>()
+const files = new Map<string, Blob>()
+const MAX_FILE_CACHE_BYTES = 16 * 1024 ** 2
+const cacheOriginals = (originals: StoredFile[]) => {
+  for (const file of originals) {
+    if (file.blob.size > MAX_FILE_CACHE_BYTES) continue
+    files.delete(file.id)
+    files.set(file.id, file.blob)
   }
-  /** 当前使用的文件原件 */
-  files: { key: string; value: StoredFile }
-  /**
-   * 历史导入的暂存：导入过程中会话与原件只写入这两个存储，`sessions` / `files` 保持不变；
-   * 全部校验通过后在一个事务中替换正式数据并清空暂存，失败时只清空暂存。
-   */
-  sessionsStaging: { key: string; value: Session }
-  filesStaging: { key: string; value: StoredFile }
-}
-
-let dbPromise: Promise<IDBPDatabase<ChatDB>> | null = null
-
-const storedSummary = (session: Session): StoredSessionSummary => ({
-  ...toSessionSummary(session),
-  fileIds: [
-    ...new Set(
-      session.messages.flatMap((message) =>
-        message.role === 'user' ? message.files.map((file) => file.id) : []
-      )
-    ),
-  ],
-})
-
-const abortTransaction = (tx: { abort(): void }) => {
-  try {
-    tx.abort()
-  } catch {
-    // 事务已因请求失败中止。
+  let bytes = [...files.values()].reduce((sum, blob) => sum + blob.size, 0)
+  for (const [id, blob] of files) {
+    if (bytes <= MAX_FILE_CACHE_BYTES && files.size <= 8) break
+    files.delete(id)
+    bytes -= blob.size
   }
 }
-
-// 每个操作拿到连接后立即创建事务；IndexedDB 按创建顺序执行范围重叠的事务，读取总能看到之前发起的写入。
-const getDB = () =>
-  (dbPromise ??= openDB<ChatDB>('chat-demo', DB_VERSION, {
-    upgrade(db, _oldVersion, _newVersion, tx) {
-      // 初始化当前格式需要的存储与索引，不迁移旧消息。
-      for (const name of ['sessions', 'files', 'sessionsStaging', 'filesStaging'] as const) {
-        if (!db.objectStoreNames.contains(name)) {
-          db.createObjectStore(name, { keyPath: 'id' })
-        }
-      }
-      const summaries = db.objectStoreNames.contains('sessionSummaries')
-        ? tx.objectStore('sessionSummaries')
-        : db.createObjectStore('sessionSummaries', { keyPath: 'id' })
-      if (!summaries.indexNames.contains('fileIds')) {
-        summaries.createIndex('fileIds', 'fileIds', { multiEntry: true })
-      }
-    },
-  }).catch((error: unknown) => {
-    // 打开失败后允许界面重试，避免一直复用已拒绝的 Promise。
-    dbPromise = null
-    throw error
-  }))
-
-export const loadSessionSummaries = async (): Promise<SessionSummary[]> =>
-  (await (await getDB()).getAll('sessionSummaries')).map(toSessionSummary)
-
-export const loadSession = async (id: string): Promise<Session | undefined> =>
-  (await getDB()).get('sessions', id)
-
-export const saveSession = async (session: Session, files: StoredFile[] = []): Promise<void> => {
-  const summary = storedSummary(session)
-  const tx = (await getDB()).transaction(['sessions', 'sessionSummaries', 'files'], 'readwrite')
-  await Promise.all([
-    (async () => {
-      try {
-        for (const file of files) {
-          await tx.objectStore('files').put(file)
-        }
-        await tx.objectStore('sessions').put(session)
-        await tx.objectStore('sessionSummaries').put(summary)
-      } catch (error) {
-        abortTransaction(tx)
-        throw error
-      }
-    })(),
-    tx.done,
-  ])
+const writes = new Map<string, Promise<void>>()
+const saved = new Map<string, string>()
+let staging: string | undefined
+let historyRevision = 0
+let epoch = 0
+export const getStorageEpoch = () => epoch
+const assertEpoch = (expected: number) => {
+  if (expected !== epoch) throw new BridgeError('账号连接已断开', 'CHAT_BRIDGE_DISCONNECTED')
 }
+let cacheName: string | undefined
+let stagingDB: Promise<IDBPDatabase> | undefined
+const importedFiles = new Map<string, string>()
 
-/** 未打开的会话也可重命名，只读取该会话，原子更新详情和列表。 */
-export const renameSession = async (id: string, title: string): Promise<void> => {
-  const tx = (await getDB()).transaction(['sessions', 'sessionSummaries'], 'readwrite')
-  await Promise.all([
-    (async () => {
-      try {
-        const sessions = tx.objectStore('sessions')
-        const session = await sessions.get(id)
-        if (session) {
-          session.title = title
-          await sessions.put(session)
-          await tx.objectStore('sessionSummaries').put(storedSummary(session))
-        }
-      } catch (error) {
-        abortTransaction(tx)
-        throw error
-      }
-    })(),
-    tx.done,
-  ])
+export const initializeCloudStorage = (revision: number, userId: number) => {
+  historyRevision = revision
+  cacheName = `sub2api-chat-import:${userId}`
 }
-
-/** 删除会话，仅清理已无会话引用的本地原件；远端文件不删。 */
-export const deleteSession = async (sessionId: string): Promise<void> => {
-  const tx = (await getDB()).transaction(['sessions', 'sessionSummaries', 'files'], 'readwrite')
-  await Promise.all([
-    (async () => {
-      try {
-        const summaries = tx.objectStore('sessionSummaries')
-        const summary = await summaries.get(sessionId)
-        await tx.objectStore('sessions').delete(sessionId)
-        await summaries.delete(sessionId)
-        for (const id of summary?.fileIds ?? []) {
-          if ((await summaries.index('fileIds').count(id)) === 0) {
-            await tx.objectStore('files').delete(id)
-          }
-        }
-      } catch (error) {
-        abortTransaction(tx)
-        throw error
-      }
-    })(),
-    tx.done,
-  ])
-}
-
-const putFiles = async (store: 'files' | 'filesStaging', files: StoredFile[]) => {
-  const tx = (await getDB()).transaction(store, 'readwrite')
-  await Promise.all([...files.map((file) => tx.store.put(file)), tx.done])
-}
-
-export const saveFiles = (files: StoredFile[]): Promise<void> => putFiles('files', files)
-
-export const loadFile = async (id: string): Promise<Blob | undefined> =>
-  (await (await getDB()).get('files', id))?.blob
-
-/** 清空导入暂存：开始导入前清除上次中断（如关闭页面）遗留的数据，导入失败后清除本次写入。 */
-export const clearStaging = async (): Promise<void> => {
-  const tx = (await getDB()).transaction(['sessionsStaging', 'filesStaging'], 'readwrite')
-  await Promise.all([
-    tx.objectStore('sessionsStaging').clear(),
-    tx.objectStore('filesStaging').clear(),
-    tx.done,
-  ])
-}
-
-export const addStagingSession = async (session: Session): Promise<void> => {
-  await (await getDB()).add('sessionsStaging', session)
-}
-
-export const saveStagingFiles = (files: StoredFile[]): Promise<void> =>
-  putFiles('filesStaging', files)
-
-/** 图片位于会话 JSON 之后；全部读完后回填具体 MIME，保留归档给出的 isImage 标识。 */
-export const updateStagingFileTypes = async (types: ReadonlyMap<string, string>): Promise<void> => {
-  const tx = (await getDB()).transaction('sessionsStaging', 'readwrite')
-  await Promise.all([
-    (async () => {
-      for (let cursor = await tx.store.openCursor(); cursor; cursor = await cursor.continue()) {
-        const session = cursor.value
-        let changed = false
-        for (const message of session.messages) {
-          if (message.role !== 'user') {
-            continue
-          }
-          for (const file of message.files) {
-            const type = types.get(file.id) ?? ''
-            if (file.mimeType !== type) {
-              file.mimeType = type
-              changed = true
-            }
-          }
-        }
-        if (changed) {
-          await cursor.update(session)
-        }
-      }
-    })(),
-    tx.done,
-  ])
-}
-
-/**
- * 导入完成后用暂存替换正式数据：同一事务中替换会话、摘要和原件，并清空暂存。
- * 逐条游标复制，同一时间只读取一条记录；事务失败时整体回滚，正式数据不变。
- */
-export const commitStaging = async (): Promise<SessionSummary[]> => {
-  const summaries: SessionSummary[] = []
-  const tx = (await getDB()).transaction(
-    ['sessions', 'sessionSummaries', 'files', 'sessionsStaging', 'filesStaging'],
-    'readwrite'
-  )
-  const move = async (from: 'sessionsStaging' | 'filesStaging', to: 'sessions' | 'files') => {
-    try {
-      const target = tx.objectStore(to)
-      await target.clear()
-      if (to === 'sessions') {
-        await tx.objectStore('sessionSummaries').clear()
-      }
-      for (
-        let cursor = await tx.objectStore(from).openCursor();
-        cursor;
-        cursor = await cursor.continue()
-      ) {
-        await target.put(cursor.value)
-        if (to === 'sessions') {
-          const summary = storedSummary(cursor.value as Session)
-          await tx.objectStore('sessionSummaries').put(summary)
-          summaries.push(toSessionSummary(summary))
-        }
-      }
-      await tx.objectStore(from).clear()
-    } catch (error) {
-      // 同步抛出的错误不会让事务自动回滚，需显式中止，避免只提交清空和部分移入。
-      abortTransaction(tx)
-      throw error
+export const getRevision = (id: string) => revisions.get(id) ?? 0
+const remember = (session: Session) => {
+  for (const message of session.messages) {
+    if (message.role === 'user') {
+      for (const file of message.files) aliases.set(file.id, file.unavailable ? null : file.id)
     }
   }
-  await Promise.all([move('sessionsStaging', 'sessions'), move('filesStaging', 'files'), tx.done])
-  // 直接返回本次提交的列表，调用方无需在替换成功后再发起可能失败的读取。
-  return summaries
+}
+export const resetCloudStorage = () => {
+  epoch++
+  revisions.clear()
+  aliases.clear()
+  files.clear()
+  writes.clear()
+  saved.clear()
+  staging = undefined
+  historyRevision = 0
+  importedFiles.clear()
+  void stagingDB?.then((db) => db.close()).catch(() => {})
+  if (cacheName) void deleteDB(cacheName).catch(() => {})
+  stagingDB = undefined
+  cacheName = undefined
+}
+sub2apiBridge.onDisconnect(resetCloudStorage)
+
+export const loadSessionSummaries = async (): Promise<SessionSummary[]> => {
+  const currentEpoch = epoch
+  const items: SessionSummary[] = []
+  const cursors = new Set<string>()
+  let cursor = ''
+  do {
+    const page = await chatJson<SessionPage>('GET', `/sessions?limit=100${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ''}`)
+    assertEpoch(currentEpoch)
+    if (!Array.isArray(page.items)) throw new BridgeError('会话列表响应无效', 'CHAT_PROTOCOL_ERROR')
+    items.push(...page.items.map(toSessionSummary))
+    cursor = page.next_cursor ?? ''
+    if (cursor && cursors.has(cursor)) throw new BridgeError('会话分页响应无效', 'CHAT_PROTOCOL_ERROR')
+    cursors.add(cursor)
+  } while (cursor)
+  return items
 }
 
-/** 本地存储失败不打断对话，只在控制台留痕 */
+export const loadSession = async (id: string): Promise<Session | undefined> => {
+  const currentEpoch = epoch
+  await writes.get(id)?.catch(() => {})
+  assertEpoch(currentEpoch)
+  try {
+    const result = await chatJson<SessionResult>('GET', `/sessions/${encodeURIComponent(id)}`)
+    if (!result.session || !Number.isSafeInteger(result.revision)) throw new BridgeError('会话响应无效', 'CHAT_PROTOCOL_ERROR')
+    assertEpoch(currentEpoch)
+    revisions.set(id, result.revision)
+    saved.set(id, JSON.stringify(result.session))
+    remember(result.session)
+    return result.session
+  } catch (error) {
+    if (error instanceof BridgeError && error.status === 404) return undefined
+    throw error
+  }
+}
+
+/** Per-session serialization preserves the original API's ordered write semantics. A failed revision is never silently rebased. */
+export const saveSession = (session: Session, originals: StoredFile[] = []): Promise<void> => {
+  const snapshot = structuredClone(session)
+  for (const message of snapshot.messages) if (message.role === 'user') for (const file of message.files) file.serverId = null
+  const json = JSON.stringify(snapshot)
+  if (new Blob([json]).size > 8 * 1024 ** 2) return Promise.reject(new BridgeError('会话超过 8 MiB 上限，未保存，未发送', 'CHAT_SESSION_TOO_LARGE', 413))
+  const currentEpoch = epoch
+  cacheOriginals(originals)
+  remember(snapshot)
+  const previous = writes.get(session.id) ?? Promise.resolve()
+  const task = previous.catch(() => {}).then(async () => {
+    assertEpoch(currentEpoch)
+    if (saved.get(session.id) === json) return
+    const result = await chatJson<SessionResult>('PUT', `/sessions/${encodeURIComponent(session.id)}`, {
+      session: snapshot,
+      expected_revision: getRevision(session.id),
+    })
+    if (!Number.isSafeInteger(result.revision)) throw new BridgeError('保存响应缺少修订号', 'CHAT_PROTOCOL_ERROR')
+    assertEpoch(currentEpoch)
+    revisions.set(session.id, result.revision)
+    saved.set(session.id, json)
+  })
+  writes.set(session.id, task)
+  void task.finally(() => { if (writes.get(session.id) === task) writes.delete(session.id) }).catch(() => {})
+  return task
+}
+
+export const renameSession = async (id: string, title: string): Promise<void> => {
+  const currentEpoch = epoch
+  await writes.get(id)
+  assertEpoch(currentEpoch)
+  if (!revisions.has(id)) await loadSession(id)
+  assertEpoch(currentEpoch)
+  const result = await chatJson<SessionResult>('PATCH', `/sessions/${encodeURIComponent(id)}`, { title, expected_revision: getRevision(id) })
+  if (!Number.isSafeInteger(result.revision)) throw new BridgeError('保存响应缺少修订号', 'CHAT_PROTOCOL_ERROR')
+  assertEpoch(currentEpoch)
+  revisions.set(id, result.revision)
+  saved.delete(id)
+}
+
+export const deleteSession = async (id: string): Promise<void> => {
+  const currentEpoch = epoch
+  await writes.get(id)?.catch(() => {})
+  assertEpoch(currentEpoch)
+  await chatJson('DELETE', `/sessions/${encodeURIComponent(id)}`)
+  assertEpoch(currentEpoch)
+  revisions.delete(id)
+  saved.delete(id)
+}
+
+/** Cache only: durable originals are private server attachments, never an IndexedDB source of truth. */
+export const saveFiles = async (originals: StoredFile[]): Promise<void> => {
+  cacheOriginals(originals)
+}
+export const loadFile = async (id: string): Promise<Blob | undefined> => {
+  const cached = files.get(id)
+  if (cached) return cached
+  const attachmentId = aliases.get(id)
+  if (!attachmentId) return undefined
+  const currentEpoch = epoch
+  try {
+    const blob = await downloadAttachment(attachmentId)
+    assertEpoch(currentEpoch)
+    return blob
+  } catch (error) {
+    if (error instanceof BridgeError && error.status === 404) return undefined
+    throw error
+  }
+}
+
+export const clearStaging = async (): Promise<void> => {
+  const currentEpoch = epoch
+  if (staging) await chatJson('DELETE', `/imports/${encodeURIComponent(staging)}`)
+  assertEpoch(currentEpoch)
+  staging = undefined
+  importedFiles.clear()
+  if (cacheName) await (await importCache()).clear('sessions')
+}
+const ensureStaging = async (): Promise<string> => {
+  const currentEpoch = epoch
+  if (!staging) {
+    const preferences = await chatJson<{ preferences: Record<string, unknown>; history_revision: number }>('GET', '/preferences')
+    assertEpoch(currentEpoch)
+    if (!Number.isSafeInteger(preferences.history_revision)) throw new BridgeError('历史修订号无效', 'CHAT_PROTOCOL_ERROR')
+    historyRevision = preferences.history_revision
+    const result = await chatJson<{ id: string }>('POST', '/imports', { expected_history_revision: historyRevision })
+    assertEpoch(currentEpoch)
+    if (typeof result.id !== 'string') throw new BridgeError('导入响应无效', 'CHAT_PROTOCOL_ERROR')
+    staging = result.id
+  }
+  return staging
+}
+export const beginStaging = async (): Promise<void> => { await ensureStaging() }
+const importCache = () => {
+  if (!cacheName) throw new BridgeError('账号连接已断开', 'CHAT_BRIDGE_DISCONNECTED')
+  return stagingDB ??= openDB(cacheName, 1, { upgrade(db) { db.createObjectStore('sessions', { keyPath: 'id' }) } })
+}
+export const addStagingSession = async (session: Session): Promise<void> => {
+  const currentEpoch = epoch
+  await ensureStaging()
+  assertEpoch(currentEpoch)
+  const snapshot = structuredClone(session)
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(snapshot.id)) snapshot.id = crypto.randomUUID()
+  for (const message of snapshot.messages) {
+    if (message.role === 'user') for (const file of message.files) file.serverId = null
+    else { message.presetId = undefined; message.groupId = undefined; message.prefix = false }
+  }
+  await (await importCache()).add('sessions', snapshot)
+}
+export const saveStagingFiles = async (originals: StoredFile[]): Promise<void> => {
+  const currentEpoch = epoch
+  const id = await ensureStaging()
+  for (const file of originals) {
+    assertEpoch(currentEpoch)
+    const result = await sub2apiBridge.request<{ id: string }>('upload', {
+      path: `/imports/${encodeURIComponent(id)}/attachments`,
+      body: file.blob,
+      filename: `image.${file.blob.type.split('/')[1] || 'bin'}`,
+    })
+    assertEpoch(currentEpoch)
+    if (typeof result.id !== 'string') throw new BridgeError('导入附件响应无效', 'CHAT_PROTOCOL_ERROR')
+    importedFiles.set(file.id, result.id)
+  }
+}
+/** MIME is verified from bytes by both archive reader and server; no client type patch is trusted. */
+export const updateStagingFileTypes = async (types: ReadonlyMap<string, string>): Promise<void> => {
+  for (const type of types.values()) {
+    if (!/^image\/(jpeg|png|gif|webp|bmp|tiff|avif)$/.test(type)) throw new BridgeError('归档包含无法验证的图片', 'CHAT_IMPORT_INVALID_IMAGE')
+  }
+  const currentEpoch = epoch
+  if (stagingDB) {
+    const db = await stagingDB
+    for (const key of await db.getAllKeys('sessions')) {
+      assertEpoch(currentEpoch)
+      const session = await db.get('sessions', key) as Session
+      for (const message of session.messages) {
+        if (message.role === 'user') for (const file of message.files) {
+          const type = types.get(file.id)
+          if (type) file.mimeType = type
+        }
+      }
+      await db.put('sessions', session)
+    }
+  }
+}
+export const commitStaging = async (): Promise<SessionSummary[]> => {
+  const currentEpoch = epoch
+  if (!staging) {
+    await chatJson('DELETE', '/sessions')
+    assertEpoch(currentEpoch)
+    revisions.clear()
+    aliases.clear()
+    files.clear()
+    saved.clear()
+    return loadSessionSummaries()
+  }
+  const id = staging
+  if (stagingDB) {
+    const db = await stagingDB
+    for (const key of await db.getAllKeys('sessions')) {
+      const session = await db.get('sessions', key) as Session
+      assertEpoch(currentEpoch)
+      for (const message of session.messages) {
+        if (message.role !== 'user') continue
+        for (const file of message.files) {
+          const remote = importedFiles.get(file.id)
+          file.id = remote ?? crypto.randomUUID()
+          file.serverId = null
+          file.unavailable = !remote
+        }
+      }
+      await chatJson('PUT', `/imports/${encodeURIComponent(id)}/sessions/${encodeURIComponent(session.id)}`, { session })
+    }
+  }
+  assertEpoch(currentEpoch)
+  const result = await chatJson<{ history_revision: number }>('POST', `/imports/${encodeURIComponent(id)}/commit`, { expected_history_revision: historyRevision })
+  assertEpoch(currentEpoch)
+  staging = undefined
+  importedFiles.clear()
+  if (stagingDB) await (await stagingDB).clear('sessions')
+  revisions.clear()
+  aliases.clear()
+  files.clear()
+  saved.clear()
+  if (Number.isSafeInteger(result.history_revision)) historyRevision = result.history_revision
+  return loadSessionSummaries()
+}
+
 export const reportStorageError = (action: string) => (error: unknown) => {
-  // eslint-disable-next-line no-console
-  console.error(`[storage] ${action} failed`, error)
+  // Error messages contain no request bodies, credentials, or chat content.
+  console.error(`[chat:${action}]`, error instanceof Error ? error.message : 'Storage request failed')
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('chat:storage-error', { detail: error instanceof Error ? error.message : '云端保存失败' }))
 }

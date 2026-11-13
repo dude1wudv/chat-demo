@@ -9,18 +9,18 @@ import { Tooltip } from '../base/Tooltip.js'
 import { FileCard } from '../files/FileCard.js'
 import styles from './MessageFile.module.css'
 
-/** 原件从 IndexedDB 读出并生成本地地址；undefined 表示加载中，null 表示原件缺失。 */
+/** Private originals are downloaded through the authenticated host and revoked on unmount. */
 const useFileUrl = (id: string) => {
   const [fileUrl, setFileUrl] = useState<{ id: string; url: string | null } | null>(null)
   useEffect(() => {
     let objectUrl: string | null = null
     let cancelled = false
-    loadFile(id).then((blob) => {
+    void loadFile(id).then((blob) => {
       if (!cancelled) {
         objectUrl = blob ? URL.createObjectURL(blob) : null
         setFileUrl({ id, url: objectUrl })
       }
-    })
+    }).catch(() => { if (!cancelled) setFileUrl({ id, url: null }) })
     return () => {
       cancelled = true
       if (objectUrl) {
@@ -66,7 +66,8 @@ export const MessageFile = ({
 
   const retry = retryable ? onRetry : null
 
-  if (file.isImage && url !== null) {
+  const safeImage = file.isImage && /^image\/(jpeg|png|gif|webp|bmp|tiff|avif)$/.test(file.mimeType)
+  if (safeImage && url !== null) {
     const preview = url ? (
       failedUrl === url ? (
         <span className={styles.failedIcon} role="img" aria-label={file.name}>
@@ -158,7 +159,13 @@ export const MessageFile = ({
       status={uploading ? 'uploading' : failed ? 'error' : 'done'}
       error={errorText}
       onRetry={retry ?? undefined}
-      onOpen={url && !upload ? () => window.open(url, '_blank', 'noreferrer') : undefined}
+      onOpen={url && !upload ? () => {
+        const link = document.createElement('a')
+        link.href = url
+        link.download = file.name
+        link.rel = 'noreferrer'
+        link.click()
+      } : undefined}
     />
   )
 }

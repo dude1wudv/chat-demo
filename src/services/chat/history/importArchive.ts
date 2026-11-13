@@ -42,6 +42,7 @@ const imageType = (bytes: Uint8Array): string => {
 }
 
 const readJson = async (entry: ArchiveEntry): Promise<unknown> => {
+  if (entry.size > 8 * 1024 ** 2) fail('backupIncomplete')
   const text = await (await readEntry(entry)).text()
   try {
     return JSON.parse(text)
@@ -82,6 +83,7 @@ export const importArchive = async (file: File): Promise<void> => {
   if (!(await isZipFile(file))) {
     fail('backupUnrecognized')
   }
+  await db.beginStaging()
   const imported = new Set<string>()
   const images = new Map<string, string>()
   /** 已保存的原件：文件 ID → MIME。同一图片出现在多个会话目录时只保存一次。 */
