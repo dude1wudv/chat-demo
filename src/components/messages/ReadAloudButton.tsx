@@ -8,9 +8,10 @@ import { IconPlayMediaOutline16 } from '../base/icons.js'
 import { IconButton } from '../base/IconButton.js'
 import { showToast } from '../base/toastState.js'
 import { ReadingBars } from './ReadingBars.js'
+import type { SpeechScope } from '../../services/api/speech.js'
 
 /** 朗读按钮：未朗读时点击开始，加载中或朗读中点击停止；正文原样提交，由服务端过滤 markdown */
-export const ReadAloudButton = ({ messageId, text }: { messageId: string; text: string }) => {
+export const ReadAloudButton = ({ messageId, text, scope }: { messageId: string; text: string; scope: SpeechScope }) => {
   const t = useTranslate()
   const status = useReadAloud((state) => (state.messageId === messageId ? state.status : 'idle'))
   return (
@@ -19,7 +20,7 @@ export const ReadAloudButton = ({ messageId, text }: { messageId: string; text: 
       tooltip={status === 'idle' ? t('ttsPlay') : t('ttsStop')}
       tooltipPlacement="bottom"
       onClick={() =>
-        toggleReadAloud(messageId, text, (error) => showToast(describeReadAloudError(error)))
+        toggleReadAloud(messageId, text, scope, (error) => showToast(describeReadAloudError(error)))
       }
     />
   )

@@ -22,6 +22,7 @@ export const SourceCard = ({ source, className }: { source: Source; className?: 
           {source.siteName && date ? <span className={styles.divider} /> : null}
           {date ? <span className={styles.date}>{date}</span> : null}
         </div>
+        {source.imageUrl ? <img key={source.imageUrl} className={styles.image} src={source.imageUrl} alt={source.title} loading="lazy" referrerPolicy="no-referrer" onError={(event) => { event.currentTarget.hidden = true }} /> : null}
         <div className={styles.title}>{source.title}</div>
         {source.snippet ? <div className={styles.snippet}>{source.snippet}</div> : null}
       </div>

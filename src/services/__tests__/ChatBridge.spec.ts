@@ -20,7 +20,7 @@ const setup = () => {
   const connect = bridge.connect()
   const nonce = parent.postMessage.mock.calls[0][0].nonce as string
   const handshake = (patch: Record<string, unknown> = {}) => {
-    const event = Object.assign(new Event('message'), { origin: 'https://chat.test', source: parent, ports: [port], data: { type: 'sub2api:chat:connect', version: 1, nonce }, ...patch })
+    const event = Object.assign(new Event('message'), { origin: 'https://chat.test', source: parent, ports: [port], data: { type: 'sub2api:chat:connect', version: 2, nonce }, ...patch })
     host.dispatchEvent(event)
   }
   return { parent, host, port, bridge, connect, nonce, handshake }
@@ -36,11 +36,11 @@ describe('ChatBridge', () => {
     void fixture.connect.then(() => { connected = true })
     fixture.handshake({ origin: 'https://evil.test' })
     fixture.handshake({ source: {} })
-    fixture.handshake({ data: { type: 'sub2api:chat:connect', version: 2, nonce: fixture.nonce } })
-    fixture.handshake({ data: { type: 'sub2api:chat:connect', version: 1, nonce: 'wrong' } })
+    fixture.handshake({ data: { type: 'sub2api:chat:connect', version: 1, nonce: fixture.nonce } })
+    fixture.handshake({ data: { type: 'sub2api:chat:connect', version: 2, nonce: 'wrong' } })
     await Promise.resolve()
     expect(connected).toBe(false)
-    expect(fixture.parent.postMessage).toHaveBeenCalledWith({ type: 'sub2api:chat:ready', version: 1, nonce: fixture.nonce }, 'https://chat.test')
+    expect(fixture.parent.postMessage).toHaveBeenCalledWith({ type: 'sub2api:chat:ready', version: 2, nonce: fixture.nonce }, 'https://chat.test')
     fixture.handshake()
     await fixture.connect
     const request = fixture.bridge.request('bootstrap', {})

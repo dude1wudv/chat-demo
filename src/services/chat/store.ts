@@ -7,6 +7,8 @@ import { initializePreferences } from '../settings.js'
 import type { ChatBootstrap } from '../sub2apiBridgeContract.js'
 import { useUploads } from '../attachments.js'
 import { useSettings } from '../settings.js'
+import { stopReadAloud } from '../speech/readAloud.js'
+import { acceptsChatAttachment } from './capabilities.js'
 import { appendBranch, getVisibleMessages, normalizeSession, selectVersion } from './branches.js'
 import * as db from './db.js'
 import {
@@ -406,6 +408,7 @@ export const replaceHistory = async (write: () => Promise<void>): Promise<number
 
 export const newChat = () => {
   if (!get().importingHistory) {
+    stopReadAloud()
     set({ activeId: null })
     trimSessionCache()
   }
@@ -413,6 +416,7 @@ export const newChat = () => {
 
 export const selectSession = (id: string) => {
   if (!get().importingHistory && get().sessions.some((session) => session.id === id)) {
+    stopReadAloud()
     touchSession(id)
     set({ activeId: id })
     void ensureSessionLoaded(id).then(() => restorePresetSelection(getSession(id)?.presetId ?? null))
@@ -431,6 +435,7 @@ export const reloadActiveSession = async () => {
 
 export const setSessionPreset = (sessionId: string | null, id: string) => {
   if (get().importingHistory || (sessionId && getStreamController(sessionId))) return
+  stopReadAloud()
   selectPreset(id)
   if (sessionId) {
     updateSession(sessionId, (session) => ({ ...session, presetId: id }))
@@ -731,7 +736,7 @@ const validateContext = (request: Request, reply: AssistantMessage) => {
     if (message.role === 'user') {
       for (const file of message.files) {
         if (file.unavailable) throw new Error(`附件「${file.name}」未包含在归档中，请重新上传后再发送`)
-        if (file.isImage ? !preset.capabilities.image_input : !preset.capabilities.document_input) throw new Error(`所选模型不支持${file.isImage ? '图片' : '文档'}附件「${file.name}」`)
+        if (!acceptsChatAttachment(preset.capabilities, file.name, file.isImage)) throw new Error(`所选模型不支持此附件格式「${file.name}」`)
       }
     } else if ((message.groupId !== preset.group_id || (message.model && message.model !== preset.model)) && message.blocks.some((block) => 'signature' in block && block.signature)) {
       throw new Error('此会话包含原渠道的签名上下文；跨组或跨模型请开启新会话')
@@ -838,6 +843,7 @@ const streamReply = async (sessionId: string, initial: AssistantMessage, request
 }
 
 sub2apiBridge.onDisconnect(() => {
+  stopReadAloud()
   historyEpoch++
   for (const controller of Object.values(get().streaming)) controller.abort()
   initTask = undefined

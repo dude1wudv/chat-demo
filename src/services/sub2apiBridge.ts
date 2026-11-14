@@ -29,14 +29,22 @@ export const isAllowedBridgeRequest = (command: BridgeCommand, payload: unknown)
   if (command === 'bootstrap' || command === 'logout') return Object.keys(p).length === 0
   if (command === 'cancel') return typeof p.target_request_id === 'string' && p.target_request_id.length > 0
   if (command === 'navigate') return p.path === '/dashboard' || p.path === '/chat-models'
+  if (command === 'asr' || command === 'tts') {
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    const allowed = command === 'asr' ? ['preset_id', 'session_id', 'audio'] : ['preset_id', 'session_id', 'text', 'voice_id', 'filter_markdown']
+    if (Object.keys(p).some((key) => !allowed.includes(key)) || typeof p.preset_id !== 'string' || !uuid.test(p.preset_id)
+      || (p.session_id !== undefined && (typeof p.session_id !== 'string' || !uuid.test(p.session_id)))) return false
+    return command === 'asr' ? p.audio instanceof Blob && p.audio.size > 0 && p.audio.size <= 8 * 1024 * 1024
+      : typeof p.text === 'string' && p.text.trim().length > 0 && p.text.length <= 32768 && (p.voice_id === 'stella' || p.voice_id === 'tide') && typeof p.filter_markdown === 'boolean'
+  }
   if (typeof p.path !== 'string') return false
   const path = route(p.path)
   if (command === 'stream') return new RegExp(`^/sessions/${ID}/generate$`).test(path)
   if (command === 'download') return new RegExp(`^/attachments/${ID}/content$`).test(path)
   if (command === 'upload') return (path === '/attachments' || new RegExp(`^/imports/${ID}/attachments$`).test(path)) && p.body instanceof Blob && typeof p.filename === 'string'
   const allowed: Record<string, RegExp[]> = {
-    GET: [/^\/presets$/, /^\/preferences$/, /^\/sessions$/, new RegExp(`^/sessions/${ID}$`)],
-    POST: [/^\/imports$/, new RegExp(`^/imports/${ID}/commit$`), new RegExp(`^/sessions/${ID}/stop$`)],
+    GET: [/^\/presets$/, /^\/preferences$/, /^\/sessions$/, new RegExp(`^/sessions/${ID}$`), new RegExp(`^/attachments/${ID}/parse$`)],
+    POST: [/^\/imports$/, new RegExp(`^/imports/${ID}/commit$`), new RegExp(`^/sessions/${ID}/stop$`), new RegExp(`^/attachments/${ID}/parse$`)],
     PUT: [/^\/preferences$/, new RegExp(`^/sessions/${ID}$`), new RegExp(`^/imports/${ID}/sessions/${ID}$`)],
     PATCH: [new RegExp(`^/sessions/${ID}$`)],
     DELETE: [/^\/sessions$/, new RegExp(`^/sessions/${ID}$`), new RegExp(`^/imports/${ID}$`)],
@@ -146,7 +154,7 @@ export class Sub2apiBridge {
     const id = this.host.crypto.randomUUID()
     const cleanup = () => { clearTimeout(timer); signal?.removeEventListener('abort', abort) }
     const abort = () => { this.sendCancel(id); this.pending.delete(id); cleanup(); reject(signal?.reason ?? new DOMException('Aborted', 'AbortError')) }
-    const timer = setTimeout(() => { this.sendCancel(id); this.pending.delete(id); cleanup(); reject(new BridgeError('请求超时，请重试', 'CHAT_BRIDGE_TIMEOUT')) }, command === 'upload' || command === 'download' ? 120000 : 30000)
+    const timer = setTimeout(() => { this.sendCancel(id); this.pending.delete(id); cleanup(); reject(new BridgeError('请求超时，请重试', 'CHAT_BRIDGE_TIMEOUT')) }, command === 'asr' ? 190000 : command === 'json' && 'path' in payload && String(payload.path).endsWith('/parse') ? 250000 : command === 'upload' || command === 'download' ? 120000 : 30000)
     this.pending.set(id, { result: (value) => resolve(value as T), fail: reject, cleanup })
     signal?.addEventListener('abort', abort, { once: true })
     try {
@@ -155,10 +163,18 @@ export class Sub2apiBridge {
     return promise
   }
 
-  async *stream(payload: BridgePayloads['stream'], signal: AbortSignal): AsyncGenerator<BridgeChunk> {
+  stream(payload: BridgePayloads['stream'], signal: AbortSignal): AsyncGenerator<BridgeChunk> {
+    return this.streamRequest('stream', payload, signal)
+  }
+
+  speech(payload: BridgePayloads['tts'], signal: AbortSignal): AsyncGenerator<BridgeChunk> {
+    return this.streamRequest('tts', payload, signal)
+  }
+
+  private async *streamRequest(command: 'stream' | 'tts', payload: BridgePayloads['stream'] | BridgePayloads['tts'], signal: AbortSignal): AsyncGenerator<BridgeChunk> {
     await this.connect()
     signal.throwIfAborted()
-    if (!isAllowedBridgeRequest('stream', payload)) throw new BridgeError('不允许的聊天请求', 'CHAT_BRIDGE_FORBIDDEN')
+    if (!isAllowedBridgeRequest(command, payload)) throw new BridgeError('不允许的聊天请求', 'CHAT_BRIDGE_FORBIDDEN')
     const id = this.host.crypto.randomUUID()
     const queue: BridgeChunk[] = []
     let wake: (() => void) | undefined
@@ -166,7 +182,8 @@ export class Sub2apiBridge {
     let error: unknown
     const notify = () => { wake?.(); wake = undefined }
     const abort = () => { this.sendCancel(id); error = signal.reason ?? new DOMException('Aborted', 'AbortError'); done = true; notify() }
-    const cleanup = () => signal.removeEventListener('abort', abort)
+    const timer = command === 'tts' ? setTimeout(() => { this.sendCancel(id); error = new BridgeError('语音请求超时', 'CHAT_BRIDGE_TIMEOUT'); done = true; notify() }, 32 * 60 * 1000) : undefined
+    const cleanup = () => { clearTimeout(timer); signal.removeEventListener('abort', abort) }
     this.pending.set(id, {
       chunk: (value) => { queue.push(value); notify() },
       end: () => { done = true; notify() },
@@ -175,7 +192,7 @@ export class Sub2apiBridge {
     })
     signal.addEventListener('abort', abort, { once: true })
     try {
-      this.port!.postMessage({ type: 'request', command: 'stream', request_id: id, nonce: this.nonce, ...payload } satisfies BridgeRequest)
+      this.port!.postMessage({ type: 'request', command, request_id: id, nonce: this.nonce, ...payload })
       while (true) {
         if (signal.aborted || error) throw error ?? signal.reason
         if (queue.length) { yield queue.shift()!; continue }

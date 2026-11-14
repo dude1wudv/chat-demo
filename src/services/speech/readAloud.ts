@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import type { TranslationMessage } from '../../i18n/index.js'
 import { ApiError } from '../api/client.js'
 import { classifyApiError } from '../api/errors.js'
-import { synthesize, TTS_SAMPLE_RATE } from '../api/speech.js'
+import { synthesize, TTS_SAMPLE_RATE, type SpeechScope } from '../api/speech.js'
 import { useSettings } from '../settings.js'
 
 /**
@@ -80,6 +80,7 @@ export const describeReadAloudError = (error: unknown): TranslationMessage | str
 export const toggleReadAloud = (
   messageId: string,
   text: string,
+  scope: SpeechScope,
   onError: (error: unknown) => void
 ) => {
   const reading = useReadAloud.getState().messageId
@@ -99,7 +100,7 @@ export const toggleReadAloud = (
     let lastSource: AudioBufferSourceNode | null = null
     let rest = new Uint8Array(0)
     try {
-      const stream = await synthesize('', text, ttsVoice, controller.signal)
+      const stream = await synthesize(scope, text, ttsVoice, controller.signal)
       const reader = stream.getReader()
       controller.signal.addEventListener('abort', () => void reader.cancel().catch(() => {}))
       for (;;) {
@@ -129,7 +130,8 @@ export const toggleReadAloud = (
           useReadAloud.setState({ status: 'playing' })
         }
       }
-      if (lastSource) {
+      if (rest.length !== 0) throw new ApiError('protocol', '语音 PCM 数据不完整')
+      if (lastSource && context.currentTime < nextTime) {
         lastSource.onended = () => finish(controller)
       } else {
         finish(controller)

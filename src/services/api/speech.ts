@@ -1,78 +1,77 @@
 import { ApiError } from './client.js'
-
-export const VOICE_ENABLED: boolean = false
-const assertVoiceEnabled = () => {
-  if (!VOICE_ENABLED) throw new ApiError('protocol', '站内聊天暂不支持语音')
-}
-const request = async (url: string, init: RequestInit): Promise<Response> => {
-  assertVoiceEnabled()
-  const response = await fetch(url, init)
-  if (!response.ok) throw new ApiError('http', await response.text(), response.status)
-  return response
-}
-
-/**
- * 语音接口：
- * - ASR：POST /v1/tools/asr，multipart 上传 WAV / Ogg Opus，一次返回全文
- * - TTS：POST /v1/tools/tts，返回音频字节流（产出首帧后即返回 200）
- * 鉴权都用 Authorization: Bearer。
- */
-const TOOLS_BASE_URL = '/v1/tools'
+import { readServerSentEvents } from './sse.js'
+import { sub2apiBridge } from '../sub2apiBridge.js'
+import type { BridgeChunk } from '../sub2apiBridgeContract.js'
 
 export type TtsVoice = 'stella' | 'tide'
-
-/** TTS 输出的裸 PCM 参数：24kHz、单声道、16-bit 小端 */
+export type SpeechScope = { preset_id: string; session_id?: string }
 export const TTS_SAMPLE_RATE = 24000
+const MAX_PCM_BYTES = TTS_SAMPLE_RATE * 2 * 30 * 60
+const incomplete = () => new ApiError('protocol', '语音结果不完整或校验失败，未自动重试')
 
-/** 语音识别：audio 为 WAV（单声道 16-bit PCM）或 Ogg Opus，时长不超过 120 秒、大小不超过 8 MiB */
-export const transcribe = async (
-  apiKey: string,
-  audio: Blob,
-  signal?: AbortSignal
-): Promise<string> => {
-  assertVoiceEnabled()
-  const form = new FormData()
-  form.append('file', audio, 'recording.wav')
-  const response = await request(`${TOOLS_BASE_URL}/asr`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}` },
-    body: form,
-    signal,
-  })
-  const raw = await response.text()
-  let body: unknown
-  try {
-    body = JSON.parse(raw)
-  } catch {
-    throw new ApiError('protocol', raw)
-  }
-  if (
-    typeof body !== 'object' ||
-    body === null ||
-    !('text' in body) ||
-    typeof body.text !== 'string'
-  ) {
-    throw new ApiError('protocol', raw)
-  }
-  return body.text
+export const transcribe = async (scope: SpeechScope, audio: Blob, signal?: AbortSignal): Promise<string> => {
+  const result = await sub2apiBridge.request<unknown>('asr', { ...scope, audio }, signal)
+  if (!result || typeof result !== 'object' || !('text' in result) || typeof result.text !== 'string') throw incomplete()
+  signal?.throwIfAborted()
+  return result.text
 }
 
-/** 语音合成：返回裸 PCM 字节流；服务端默认过滤代码块、表格、引用标记与长公式 */
-export const synthesize = async (
-  apiKey: string,
-  text: string,
-  voice: TtsVoice,
-  signal: AbortSignal
-): Promise<ReadableStream<Uint8Array>> => {
-  assertVoiceEnabled()
-  const response = await request(`${TOOLS_BASE_URL}/tts`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, voice_id: voice, format: 'pcm', filter_markdown: true }),
-    signal,
-  })
-  if (!response.body) {
-    throw new ApiError('protocol', await response.text())
+const byteStream = (source: AsyncGenerator<BridgeChunk>): ReadableStream<Uint8Array> => new ReadableStream({
+  async pull(controller) {
+    try {
+      const { value, done } = await source.next()
+      if (done) { controller.close(); return }
+      if (value instanceof Uint8Array) controller.enqueue(value)
+      else if (value instanceof ArrayBuffer) controller.enqueue(new Uint8Array(value))
+      else throw incomplete()
+    } catch (error) { controller.error(error) }
+  },
+  async cancel() { await source.return(undefined) },
+})
+
+/** EOF is not success: require sequence, byte count and the authoritative SHA-256 terminal. */
+export const decodeTTSAudio = (stream: ReadableStream<Uint8Array>, signal: AbortSignal): ReadableStream<Uint8Array> => {
+  async function* decode() {
+    let requestID = '', started = false, complete = false, total = 0, sequence = 0
+    const chunks: Uint8Array[] = []
+    for await (const event of readServerSentEvents(stream, signal)) {
+      signal.throwIfAborted()
+      if (complete) throw incomplete()
+      const value: unknown = JSON.parse(event.data)
+      if (!value || typeof value !== 'object') throw incomplete()
+      const data = value as Record<string, unknown>
+      if (event.event === 'audio_start') {
+        if (started || data.format !== 'pcm' || data.sample_rate !== TTS_SAMPLE_RATE || data.channels !== 1 || data.bits_per_sample !== 16 || typeof data.request_id !== 'string' || !data.request_id) throw incomplete()
+        started = true; requestID = data.request_id
+      } else if (event.event === 'audio') {
+        if (!started || data.sequence !== sequence || typeof data.data !== 'string' || data.data.length > 3 * 1024 * 1024 || !/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(data.data)) throw incomplete()
+        const bytes = Uint8Array.from(atob(data.data), (char) => char.charCodeAt(0))
+        total += bytes.length
+        if (total > MAX_PCM_BYTES) throw incomplete()
+        sequence++; chunks.push(bytes); yield bytes
+      } else if (event.event === 'audio_complete') {
+        if (!started || total === 0 || total % 2 !== 0 || data.request_id !== requestID || data.bytes !== total || data.chunks !== sequence || typeof data.sha256 !== 'string') throw incomplete()
+        const pcm = new Uint8Array(total)
+        let offset = 0
+        for (const chunk of chunks) { pcm.set(chunk, offset); offset += chunk.length }
+        const hash = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', pcm)), (byte) => byte.toString(16).padStart(2, '0')).join('')
+        signal.throwIfAborted()
+        if (hash !== data.sha256) throw incomplete()
+        complete = true
+      } else throw incomplete()
+    }
+    signal.throwIfAborted()
+    if (!complete) throw incomplete()
   }
-  return response.body
+  const source = decode()
+  return new ReadableStream({
+    async pull(controller) {
+      try { const { value, done } = await source.next(); if (done) controller.close(); else controller.enqueue(value) }
+      catch (error) { controller.error(error) }
+    },
+    async cancel() { await source.return(undefined) },
+  })
 }
+
+export const synthesize = async (scope: SpeechScope, text: string, voice: TtsVoice, signal: AbortSignal): Promise<ReadableStream<Uint8Array>> =>
+  decodeTTSAudio(byteStream(sub2apiBridge.speech({ ...scope, text, voice_id: voice, filter_markdown: true }, signal)), signal)

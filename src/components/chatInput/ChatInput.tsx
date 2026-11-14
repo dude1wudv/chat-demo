@@ -25,13 +25,17 @@ import { IconButton } from '../base/IconButton.js'
 import { Tooltip } from '../base/Tooltip.js'
 import { DragMask, useFileDrop } from './DragMask.js'
 import { showToast } from '../base/toastState.js'
-import { ACCEPT, useUploads } from '../../services/attachments.js'
+import { useUploads } from '../../services/attachments.js'
 import { DraftAttachments } from './DraftAttachments.js'
 import { useTranslate } from '../../i18n/index.js'
 import { ModelPicker } from '../session/ModelPicker.js'
 import { useChatModels } from '../../services/chat/models.js'
 import { navigateHost } from '../../services/sub2apiBridge.js'
 import { isImage, resolveMimeType } from '../../services/attachments.js'
+import { VoiceButton } from './VoiceButton.js'
+import { useVoiceInput } from './useVoiceInput.js'
+import { AuxiliaryNotice } from './AuxiliaryNotice.js'
+import { acceptsChatAttachment, chatAttachmentAccept } from '../../services/chat/capabilities.js'
 import styles from './ChatInput.module.css'
 
 /** 输入框：自适应高度的文本框 + 文件 + 深度思考与智能搜索开关 + 语音输入 + 发送 / 停止 */
@@ -60,6 +64,10 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const togglesRef = useRef<HTMLDivElement>(null)
+  const voice = useVoiceInput(preset?.id, sessionId, !!preset?.available && preset.capabilities.asr === true && !importingHistory && !streaming, (value) => {
+    const current = getDraft(sessionId).text
+    setDraftText(sessionId, current ? `${current}\n${value}` : value)
+  })
 
   useLayoutEffect(() => {
     const toggles = togglesRef.current
@@ -82,7 +90,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
     if (files.length === 0 || useChatStore.getState().importingHistory) {
       return
     }
-    if (!preset?.available || files.some((file) => isImage(resolveMimeType(file)) ? !preset.capabilities.image_input : !preset.capabilities.document_input)) {
+    if (!preset?.available || files.some((file) => !acceptsChatAttachment(preset.capabilities, file.name, isImage(resolveMimeType(file))))) {
       window.dispatchEvent(new CustomEvent('chat:storage-error', { detail: t('chatAttachmentUnsupported') }))
       return
     }
@@ -123,6 +131,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
     if (!preset?.available || !sendMessage(sessionId)) {
       return
     }
+    voice.cancel()
     stopReadAloud()
     if (isMobile) {
       textareaRef.current?.blur()
@@ -222,12 +231,13 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
             type="file"
             multiple
             hidden
-            accept={ACCEPT}
+            accept={chatAttachmentAccept(preset?.capabilities)}
             onChange={(event) => {
               acceptFiles(Array.from(event.target.files ?? []))
               event.target.value = ''
             }}
           />
+          {preset?.capabilities.asr ? <VoiceButton status={voice.status} seconds={voice.seconds} disabled={!voice.available} onClick={() => { stopReadAloud(); void voice.toggle() }} /> : null}
           {streaming && sessionId ? (
             <button
               type="button"
@@ -253,6 +263,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
           )}
         </div>
       </div>
+      {preset ? <AuxiliaryNotice caps={preset.capabilities} hasFiles={attachments.length > 0} /> : null}
       {dragging ? <DragMask /> : null}
     </div>
   )

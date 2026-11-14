@@ -1,4 +1,4 @@
-export const BRIDGE_VERSION = 1 as const
+export const BRIDGE_VERSION = 2 as const
 export type ChatCapabilities = {
   transport: 'chat_completions' | 'messages' | 'responses' | 'gemini'
   image_input: boolean
@@ -11,7 +11,16 @@ export type ChatCapabilities = {
   tool_call: boolean
   search: boolean
   read_url: boolean
-  voice: false
+  voice: boolean
+  asr?: boolean
+  tts?: boolean
+  ocr?: boolean
+  document_mode?: 'native' | 'text' | 'ocr'
+  accepted_document_extensions?: string[]
+  search_source?: 'native' | 'shared' | 'unavailable'
+  read_url_source?: 'native' | 'shared' | 'unavailable'
+  reasoning_efforts?: Array<'none' | 'low' | 'medium' | 'high'>
+  auxiliary_prices?: Array<{ kind: string; unit: string; unit_price: string; price_quantity: number }>
   reasons: Record<string, string>
 }
 export type ChatPresetView = {
@@ -46,6 +55,8 @@ export type BridgePayloads = {
   upload: { path: string; body: Blob; filename: string; purpose?: string }
   download: { path: string }
   stream: { path: string; body: unknown }
+  asr: { preset_id: string; session_id?: string; audio: Blob }
+  tts: { preset_id: string; session_id?: string; text: string; voice_id: 'stella' | 'tide'; filter_markdown: boolean }
   cancel: { target_request_id: string }
   navigate: { path: '/dashboard' | '/chat-models' }
   logout: Record<never, never>

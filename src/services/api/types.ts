@@ -58,7 +58,7 @@ export type WebSearchResult = {
   type: 'web_search_result'
   title: string
   url: string
-  /** 图搜召回的原站图片地址，可能缺省；仅保存，当前不展示图片。 */
+  /** 图搜召回的原站图片地址，可能缺省；展示时仅允许 HTTP(S)。 */
   image_url?: string
   /** 可直接展示的网页摘要 */
   snippet: string

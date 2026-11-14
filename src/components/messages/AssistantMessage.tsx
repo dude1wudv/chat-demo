@@ -15,6 +15,7 @@ import { Markdown } from '../markdown/Markdown.js'
 import { SiteThumbnails } from '../search/SiteLogo.js'
 import { toggleSearchPanel, useSearchPanel } from '../search/searchPanelState.js'
 import { CopyButton } from './CopyButton.js'
+import { ReadAloudButton } from './ReadAloudButton.js'
 import { ReplyArea } from './ReplyArea.js'
 import { useReplyView } from './useReplyView.js'
 import {
@@ -43,7 +44,7 @@ export const AssistantMessage = memo(function AssistantMessage({
   onSelectVersion: SelectMessageVersion
 }) {
   const t = useTranslate()
-  useChatModels((state) => state.presets)
+  const speechPreset = useChatModels((state) => state.presets.find((preset) => preset.id === state.selectedId))
   const view = useReplyView(message, streaming)
   const panelEntry = useSearchPanel((state) => state.entry)
   const notice = streaming ? null : describeReply(message)
@@ -142,6 +143,7 @@ export const AssistantMessage = memo(function AssistantMessage({
           <BranchSwitcher versions={versions} disabled={busy} onSelect={onSelectVersion} />
           <div className={clsx(styles.actions, isLast && styles.alwaysShow)}>
             {copyText ? <CopyButton text={copyText} /> : null}
+            {!busy && !refused && responseText && speechPreset?.available && speechPreset.capabilities.tts ? <ReadAloudButton messageId={message.id} text={responseText} scope={{ preset_id: speechPreset.id, session_id: sessionId }} /> : null}
             <IconButton
               icon={<IconRefreshOutline16 />}
               tooltip={t('regenerate')}

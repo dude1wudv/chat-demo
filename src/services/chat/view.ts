@@ -23,6 +23,7 @@ export type Source = {
   /** 明文摘要与站点图标；缺少元数据时为 null */
   snippet: string | null
   siteIcon: string | null
+  imageUrl?: string | null
   /** 引用角标与搜索结果列表上的编号，从 1 开始 */
   index: number
 }
@@ -113,11 +114,16 @@ class SourceRegistry {
     url: string,
     title: string | null,
     publishedAt: string | null,
-    metadata?: Pick<WebSearchResult, 'snippet' | 'site_icon' | 'site_name'>
+    metadata?: Pick<WebSearchResult, 'snippet' | 'site_icon' | 'site_name' | 'image_url'>
   ): Source {
     const siteName = metadata?.site_name?.trim() || getSiteName(url)
     const snippet = metadata?.snippet?.trim() || null
     const siteIcon = metadata?.site_icon?.trim() || null
+    let imageUrl: string | null = null
+    try {
+      const candidate = new URL(metadata?.image_url ?? '')
+      if (['http:', 'https:'].includes(candidate.protocol) && !candidate.username && !candidate.password) imageUrl = candidate.href
+    } catch { /* Keep the text source when an image URL is absent or invalid. */ }
     const existing = this.byUrl.get(url)
     if (existing) {
       // 同一网页可能先被打开，或先返回不完整元数据；后续结果补齐，不覆盖已有正文信息。
@@ -130,6 +136,7 @@ class SourceRegistry {
       existing.publishedAt ||= publishedAt
       existing.snippet ||= snippet
       existing.siteIcon ||= siteIcon
+      existing.imageUrl ||= imageUrl
       return existing
     }
     const source: Source = {
@@ -139,6 +146,7 @@ class SourceRegistry {
       publishedAt,
       snippet,
       siteIcon,
+      imageUrl,
       index: this.list.length + 1,
     }
     this.list.push(source)
