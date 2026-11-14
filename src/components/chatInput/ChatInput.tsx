@@ -140,7 +140,6 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
         }
       }}
     >
-      <ModelPicker sessionId={sessionId} disabled={streaming || importingHistory} />
       <DraftAttachments items={attachments} onRetry={retryFile} onRemove={removeFile} />
       <div className={styles.textareaWrapper}>
         <textarea
@@ -209,6 +208,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
           </Tooltip>
         </div>
         <div className={styles.right}>
+          <ModelPicker sessionId={sessionId} disabled={streaming || importingHistory} />
           <IconButton
             size="m"
             tone="primary"

@@ -299,7 +299,8 @@
 
 .right {
   display: flex;
-  flex-shrink: 0;
+  flex-shrink: 1;
+  min-width: 0;
   align-items: center;
   gap: 4px;
   margin-left: auto;
@@ -329,4 +330,16 @@
     opacity: 0.4;
     cursor: not-allowed;
   }
+}
+
+@media (pointer: coarse), (max-width: 767px) {
+  .toggle, .right button { min-height: 44px; }
+  .right button:not([aria-haspopup]) { min-width: 44px; }
+}
+
+@media (max-width: 380px) {
+  .functionRow { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding-top: 8px; }
+  .collapsedToggles .toggleLabel { display: inline; }
+  .right { width: 100%; }
+  .right > button[aria-haspopup] { margin-right: auto; max-width: calc(100% - 108px); }
 }

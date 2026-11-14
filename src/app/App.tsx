@@ -24,7 +24,6 @@ import { stopReadAloud } from '../services/speech/readAloud.js'
 import { CollapsedSider } from '../components/sider/CollapsedSider.js'
 import { closeMobileSider } from '../components/sider/mobileSiderState.js'
 import { MobileSider, Sider } from '../components/sider/Sider.js'
-import { sub2apiBridge, navigateHost } from '../services/sub2apiBridge.js'
 import { useChatModels } from '../services/chat/models.js'
 import { retrySavePreferences } from '../services/settings.js'
 import styles from './App.module.css'
@@ -88,11 +87,6 @@ export const App = () => {
       <div ref={frameRef} className={styles.frame}>
         {isMobile ? <MobileSider /> : siderCollapsed ? null : <Sider />}
         <main className={styles.main}>
-          <nav aria-label={t('chatModels')} style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '8px 16px' }}>
-            <Button variant="outlined" size="s" disabled={!connected} onClick={() => void navigateHost('/dashboard')}>{t('chatDashboard')}</Button>
-            <Button variant="outlined" size="s" disabled={!connected} onClick={() => void navigateHost('/chat-models')}>{t('chatModels')}</Button>
-            <Button variant="outlined" size="s" disabled={!connected} onClick={() => { void sub2apiBridge.request('logout', {}).finally(() => sub2apiBridge.disconnect()).catch(() => {}) }}>{t('chatLogout')}</Button>
-          </nav>
           {cloudError ? <div className={styles.saveError} role="alert"><span>{cloudError}</span><button type="button" onClick={() => { setCloudError(''); void reloadActiveSession() }}>{t('chatReload')}</button><button type="button" onClick={() => { setCloudError(''); void retrySavePreferences() }}>{t('chatRetryPreferences')}</button><button type="button" onClick={() => setCloudError('')}>{t('close')}</button></div> : null}
           {saveError ? (
             <div className={styles.saveError} role="alert">

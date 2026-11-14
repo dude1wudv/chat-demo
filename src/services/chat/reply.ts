@@ -34,7 +34,7 @@ const toFileBlocks = (files: FileAttachment[]): FileBlockParam[] =>
 const toReplyBlock = (block: OutputBlockStart, now: number): ReplyBlock | null => {
   switch (block.type) {
     case 'text':
-      return { type: 'text', text: block.text, citations: block.citations ?? [] }
+      return { type: 'text', text: block.text, citations: block.citations ?? [], ...(block.signature ? { signature: block.signature } : {}) }
     case 'thinking':
       return {
         type: 'thinking',
@@ -103,7 +103,7 @@ export const applyEvent = (
         if (block.type === 'thinking' && delta.type === 'thinking_delta') {
           return { ...block, thinking: block.thinking + delta.thinking }
         }
-        if (block.type === 'thinking' && delta.type === 'signature_delta') {
+        if ((block.type === 'thinking' || block.type === 'text') && delta.type === 'signature_delta') {
           return { ...block, signature: (block.signature ?? '') + delta.signature }
         }
         if (block.type === 'text' && delta.type === 'citations_delta') {

@@ -20,9 +20,11 @@ describe('ChatAdapter', () => {
       { type: 'chat_run', run_id: 'run-1' },
       { type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } },
       { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: '推理' } },
+      { type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: 'thought-signature' } },
       { type: 'content_block_stop', index: 0 },
       { type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } },
       { type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: '你好🌍' } },
+      { type: 'content_block_delta', index: 1, delta: { type: 'signature_delta', signature: 'text-signature' } },
       { type: 'content_block_delta', index: 1, delta: { type: 'citations_delta', citation: { type: 'web_search_result_location', url: 'https://example.test', title: '来源' } } },
       { type: 'content_block_start', index: 2, content_block: { type: 'server_tool_use', id: 'tool-1', kind: 'read_link', name: 'deepseek_read_url', input: { action: 'read_link', url: 'https://example.test' }, caller: { type: 'direct' } } },
       { type: 'message_delta', delta: { stop_reason: 'end_turn', stop_sequence: null } },
@@ -33,8 +35,8 @@ describe('ChatAdapter', () => {
     const indexes = new Map<number, number>()
     for (const event of events) if (event.type !== 'chat_run' && event.type !== 'chat_saved') reply = applyEvent(reply, event, 10, indexes)
     expect(reply.blocks).toMatchObject([
-      { type: 'thinking', thinking: '推理' },
-      { type: 'text', text: '你好🌍', citations: [{ url: 'https://example.test' }] },
+      { type: 'thinking', thinking: '推理', signature: 'thought-signature' },
+      { type: 'text', text: '你好🌍', signature: 'text-signature', citations: [{ url: 'https://example.test' }] },
       { type: 'server_tool_use', id: 'tool-1' },
     ])
     expect(events.at(-1)).toEqual({ type: 'chat_saved', revision: 3 })

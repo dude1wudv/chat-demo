@@ -1,6 +1,6 @@
 export const BRIDGE_VERSION = 1 as const
 export type ChatCapabilities = {
-  transport: 'chat_completions' | 'messages' | 'responses'
+  transport: 'chat_completions' | 'messages' | 'responses' | 'gemini'
   image_input: boolean
   document_input: boolean
   native_deepseek_extensions: boolean

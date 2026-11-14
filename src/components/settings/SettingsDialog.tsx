@@ -31,6 +31,8 @@ import { Modal } from '../base/Modal.js'
 import { Select } from '../base/Select.js'
 import { showToast } from '../base/toastState.js'
 import { closeSettings, useSettingsDialog, type SettingsSection } from './settingsDialogState.js'
+import { navigateHost, sub2apiBridge } from '../../services/sub2apiBridge.js'
+import { useChatModels } from '../../services/chat/models.js'
 import styles from './Settings.module.css'
 
 /**
@@ -90,6 +92,7 @@ const SettingsContent = () => {
         <div role="tabpanel" className={styles.content}>
           {section === 'general' ? (
             <>
+              <AccountActions />
               <ThemeSetting />
               <LocaleSetting />
               <LocationSetting />
@@ -121,6 +124,22 @@ const SettingsContent = () => {
       {historyDelete.opened ? <DeleteAllConfirm historyDelete={historyDelete} /> : null}
     </>
   )
+}
+
+const AccountActions = () => {
+  const t = useTranslate()
+  const connected = useChatModels((state) => state.connected)
+  const [loggingOut, setLoggingOut] = useState(false)
+  return <div className={styles.accountActions}>
+    <Button variant="outlined" size="m" disabled={!connected || loggingOut} onClick={() => void navigateHost('/dashboard')}>{t('chatDashboard')}</Button>
+    <Button variant="outlined" size="m" disabled={!connected || loggingOut} onClick={() => void navigateHost('/chat-models')}>{t('chatModels')}</Button>
+    <Button variant="dangerOutlined" size="m" disabled={!connected || loggingOut} onClick={() => {
+      setLoggingOut(true)
+      void sub2apiBridge.request('logout', {}).catch((error: unknown) => {
+        showToast(error instanceof Error ? error.message : t('chatLogout'))
+      }).finally(() => { sub2apiBridge.disconnect(); setLoggingOut(false) })
+    }}>{t('chatLogout')}</Button>
+  </div>
 }
 
 /** 删除确认保留在设置之上；失败可重试，成功只关闭确认弹窗。 */

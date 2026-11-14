@@ -70,6 +70,29 @@
   overflow-y: auto;
 }
 
+.accountActions {
+  display: grid;
+  flex: none;
+  margin-bottom: 8px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
+}
+
+.accountActions button {
+  justify-content: flex-start;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.accountActions button:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
 .cell {
   box-sizing: border-box;
   flex-shrink: 0;

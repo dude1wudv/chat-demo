@@ -21,7 +21,7 @@ export type TextCitation = {
 }
 
 /** 文本块：挂过引用的块之后，后续正文另起新块；同一块内引用按 url 去重 */
-export type TextBlock = { type: 'text'; text: string; citations?: TextCitation[] }
+export type TextBlock = { type: 'text'; text: string; citations?: TextCitation[]; signature?: string }
 
 /** 思考块：签名在块结束前经 signature_delta 下发，值为本次响应的消息 id */
 export type ThinkingBlock = { type: 'thinking'; thinking: string; signature: string }

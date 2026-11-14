@@ -54,6 +54,8 @@ export type ThinkingPart = {
 export type TextPart = {
   type: 'text'
   text: string
+  /** Opaque provider state; never rendered, only replayed to its original route. */
+  signature?: string
   citations?: TextCitation[]
   /** 服务端提示文案，仅用于展示，不作为模型回答参与上下文或续写。 */
   isTemplate?: boolean
