@@ -34,7 +34,6 @@ import { navigateHost } from '../../services/sub2apiBridge.js'
 import { isImage, resolveMimeType } from '../../services/attachments.js'
 import { VoiceButton } from './VoiceButton.js'
 import { useVoiceInput } from './useVoiceInput.js'
-import { AuxiliaryNotice } from './AuxiliaryNotice.js'
 import { acceptsChatAttachment, chatAttachmentAccept } from '../../services/chat/capabilities.js'
 import styles from './ChatInput.module.css'
 
@@ -217,7 +216,7 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
           </Tooltip>
         </div>
         <div className={styles.right}>
-          <ModelPicker sessionId={sessionId} disabled={streaming || importingHistory} />
+          <ModelPicker sessionId={sessionId} disabled={streaming || importingHistory} hasFiles={attachments.length > 0} />
           <IconButton
             size="m"
             tone="primary"
@@ -263,7 +262,6 @@ const Input = ({ sessionId }: { sessionId: string | null }) => {
           )}
         </div>
       </div>
-      {preset ? <AuxiliaryNotice caps={preset.capabilities} hasFiles={attachments.length > 0} /> : null}
       {dragging ? <DragMask /> : null}
     </div>
   )

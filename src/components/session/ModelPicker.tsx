@@ -6,20 +6,22 @@ import { setSessionPreset } from '../../services/chat/store.js'
 import { navigateHost } from '../../services/sub2apiBridge.js'
 import { useAnchoredPosition, useDismiss } from '../base/anchored.js'
 import { IconCheckOutline16, IconChevronDownOutline14 } from '../base/icons.js'
+import { AuxiliaryNotice } from './AuxiliaryNotice.js'
 import styles from './ModelPicker.module.css'
 
-export const ModelPicker = ({ sessionId, disabled }: { sessionId: string | null; disabled: boolean }) => {
+export const ModelPicker = ({ sessionId, disabled, hasFiles }: { sessionId: string | null; disabled: boolean; hasFiles: boolean }) => {
   const t = useTranslate()
   const presets = useChatModels((state) => state.presets)
   const selectedId = useChatModels((state) => state.selectedId)
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [refreshError, setRefreshError] = useState('')
+  const [pricingExpanded, setPricingExpanded] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const panelId = useId()
   const selected = presets.find((preset) => preset.id === selectedId)
   const filtered = presets.filter((preset) => `${preset.display_name} ${preset.model} ${preset.group.name} ${preset.group_id}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()))
-  const { anchorRef, floatingRef, position } = useAnchoredPosition<HTMLButtonElement, HTMLDivElement>(open && !disabled, { side: 'top', align: 'end', offset: 8, maxHeight: 420, minSpace: 180, measureKey: `${query}:${presets.length}:${refreshError}` })
+  const { anchorRef, floatingRef, position } = useAnchoredPosition<HTMLButtonElement, HTMLDivElement>(open && !disabled, { side: 'top', align: 'end', offset: 8, maxHeight: 420, minSpace: 180, measureKey: `${query}:${presets.length}:${refreshError}:${pricingExpanded}` })
   const close = () => {
     if (floatingRef.current?.contains(document.activeElement)) anchorRef.current?.focus({ preventScroll: true })
     setOpen(false)
@@ -38,6 +40,7 @@ export const ModelPicker = ({ sessionId, disabled }: { sessionId: string | null;
   }, [open, disabled, t])
   const moveFocus = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+    if (event.target !== inputRef.current && !(event.target instanceof Element && event.target.closest('[role="option"]'))) return
     if (event.target === inputRef.current && (event.key === 'Home' || event.key === 'End')) return
     const options = Array.from(floatingRef.current?.querySelectorAll<HTMLButtonElement>('[role="option"]:not(:disabled)') ?? [])
     if (!options.length) return
@@ -50,7 +53,7 @@ export const ModelPicker = ({ sessionId, disabled }: { sessionId: string | null;
   return <>
     <button ref={anchorRef} type="button" className={styles.trigger} aria-label={t('chatModelSelect')} aria-haspopup="dialog" aria-expanded={open && !disabled} aria-controls={open ? panelId : undefined} disabled={disabled}
       title={selected ? `${selected.display_name || selected.model} · ${selected.group.name} · #${selected.group_id}${selected.available ? '' : ` · ${selected.unavailable_reason || t('chatModelUnavailable')}`}` : t('chatModelRequired')}
-      onClick={() => { setQuery(''); setOpen(value => !value) }}>
+      onClick={() => { setQuery(''); setPricingExpanded(false); setOpen(value => !value) }}>
       {selected && !selected.available ? <span className={styles.warningDot} aria-hidden="true" /> : null}
       <span>{selected?.display_name || selected?.model || t('chatModelSelect')}</span><IconChevronDownOutline14 />
     </button>
@@ -66,6 +69,7 @@ export const ModelPicker = ({ sessionId, disabled }: { sessionId: string | null;
         </button>)}
         {!filtered.length ? <p className={styles.empty}>{t('chatModelNoMatch')}</p> : null}
       </div>
+      {selected ? <AuxiliaryNotice caps={selected.capabilities} hasFiles={hasFiles} modelName={selected.display_name || selected.model} onToggle={setPricingExpanded} /> : null}
       <button className={styles.manage} type="button" onClick={() => { close(); void navigateHost('/chat-models') }}>{t('chatModelManage')}<span aria-hidden="true">→</span></button>
     </div>, document.body) : null}
   </>
