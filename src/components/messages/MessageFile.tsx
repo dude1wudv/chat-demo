@@ -1,35 +1,13 @@
 import clsx from 'clsx'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useTranslate } from '../../i18n/index.js'
 import { useUploads } from '../../services/attachments.js'
-import { loadFile } from '../../services/chat/db.js'
 import type { FileAttachment } from '../../services/chat/types.js'
 import { IconPhotoErrorFill20, IconRefreshOutline16 } from '../base/icons.js'
 import { Tooltip } from '../base/Tooltip.js'
 import { FileCard } from '../files/FileCard.js'
+import { useFileView } from '../files/useFileView.js'
 import styles from './MessageFile.module.css'
-
-/** Private originals are downloaded through the authenticated host and revoked on unmount. */
-const useFileUrl = (id: string) => {
-  const [fileUrl, setFileUrl] = useState<{ id: string; url: string | null } | null>(null)
-  useEffect(() => {
-    let objectUrl: string | null = null
-    let cancelled = false
-    void loadFile(id).then((blob) => {
-      if (!cancelled) {
-        objectUrl = blob ? URL.createObjectURL(blob) : null
-        setFileUrl({ id, url: objectUrl })
-      }
-    }).catch(() => { if (!cancelled) setFileUrl({ id, url: null }) })
-    return () => {
-      cancelled = true
-      if (objectUrl) {
-        URL.revokeObjectURL(objectUrl)
-      }
-    }
-  }, [id])
-  return fileUrl?.id === id ? fileUrl.url : undefined
-}
 
 /** 历史或失效附件的补传状态：只在还没有 serverId 时显示 */
 const useUploadState = (file: FileAttachment) =>
@@ -45,7 +23,7 @@ const useUploadState = (file: FileAttachment) =>
  * 消息里的附件：
  * - 图片：纯图片显示 120×120 缩略图，与文件混排时为 64×64；上传中显示 loading 蒙层，
  *   上传失败显示品牌色描边 + 中心重试图标（可重试）或 photo-error 图标（不可重试）。
- * - 文件：显示文件卡片。
+ * - 文件：显示文件卡片；云端历史文档点击时按需下载或在新标签页预览 PDF。
  */
 export const MessageFile = ({
   file,
@@ -56,7 +34,7 @@ export const MessageFile = ({
   onRetry: (() => void) | null
 }) => {
   const t = useTranslate()
-  const url = useFileUrl(file.id)
+  const { image, url, link, open, opening } = useFileView(file.id, file.name, file.unavailable === true)
   const [failedUrl, setFailedUrl] = useState<string | null>(null)
   const upload = useUploadState(file)
   const uploading = upload?.status === 'uploading'
@@ -66,8 +44,7 @@ export const MessageFile = ({
 
   const retry = retryable ? onRetry : null
 
-  const safeImage = file.isImage && /^image\/(jpeg|png|gif|webp|bmp|tiff|avif)$/.test(file.mimeType)
-  if (safeImage && url !== null) {
+  if (image && !file.unavailable && url !== null) {
     const preview = url ? (
       failedUrl === url ? (
         <span className={styles.failedIcon} role="img" aria-label={file.name}>
@@ -78,7 +55,7 @@ export const MessageFile = ({
       )
     ) : null
 
-    // 上传中：本地原件已在 IndexedDB，先垫在蒙层下显示，避免只有一块灰色占位
+    // 上传中：先垫在蒙层下显示，避免只有一块灰色占位
     if (uploading) {
       return (
         <div className={clsx(styles.image, styles.imageThumb)} title={file.name}>
@@ -135,15 +112,9 @@ export const MessageFile = ({
       )
     }
 
-    // 正常态：链接到原件
-    return url ? (
-      <a
-        className={clsx(styles.image, styles.imageThumb)}
-        href={url}
-        target="_blank"
-        rel="noreferrer"
-        title={file.name}
-      >
+    // 正常态：链接到原件（SVG 自动带 download 属性，其余图片新标签页打开）
+    return link ? (
+      <a className={clsx(styles.image, styles.imageThumb)} {...link} title={file.name}>
         {preview}
       </a>
     ) : (
@@ -157,15 +128,11 @@ export const MessageFile = ({
       name={file.name}
       size={file.size}
       status={uploading ? 'uploading' : failed ? 'error' : 'done'}
+      opening={opening}
       error={errorText}
       onRetry={retry ?? undefined}
-      onOpen={url && !upload ? () => {
-        const link = document.createElement('a')
-        link.href = url
-        link.download = file.name
-        link.rel = 'noreferrer'
-        link.click()
-      } : undefined}
+      link={!upload ? link : undefined}
+      onOpen={!upload && !link ? () => { void open?.() } : undefined}
     />
   )
 }

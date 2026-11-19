@@ -218,11 +218,22 @@ export const bindChatPersistence = () => {
 const createReply = (): AssistantMessage | undefined => {
   try {
     const preset = requirePreset()
-    const { thinking, search } = useSettings.getState()
+    const { thinking, reasoningEffort, search } = useSettings.getState()
+    const supportedEfforts = preset.capabilities.reasoning_efforts ?? []
+    const effectiveEffort =
+      preset.capabilities.reasoning &&
+      thinking &&
+      reasoningEffort !== 'auto' &&
+      supportedEfforts.includes(reasoningEffort)
+        ? reasoningEffort
+        : undefined
+    const effectiveThinking =
+      preset.capabilities.reasoning && thinking && effectiveEffort !== 'none'
     return {
       id: createId(), role: 'assistant', createdAt: Date.now(),
       model: preset.model, presetId: preset.id, groupId: preset.group_id,
-      thinking: thinking && preset.capabilities.reasoning,
+      thinking: effectiveThinking,
+      ...(effectiveEffort ? { reasoningEffort: effectiveEffort } : {}),
       search: search && preset.capabilities.search,
       prefix: true, status: 'pending', blocks: [],
     }
@@ -230,6 +241,13 @@ const createReply = (): AssistantMessage | undefined => {
     db.reportStorageError('model selection')(error)
     return undefined
   }
+}
+
+export const getOrLoadSession = async (id: string): Promise<Session | undefined> => {
+  const cached = getSession(id)
+  if (cached) return cached
+  const stored = await db.loadSession(id)
+  return stored ? settleInterrupted(normalizeSession(stored)) : undefined
 }
 
 /** 仍在生成中的回复（页面关闭或导出时未结束）按「已停止」处理 */

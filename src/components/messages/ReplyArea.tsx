@@ -278,16 +278,21 @@ const ToolRow = ({
 
 const PageLink = ({ page, failedTip }: { page: PageItem; failedTip?: string }) => (
   <span
-    className={clsx(styles.page, page.status === 'failed' ? styles.pageFailed : styles.pageDone)}
+    className={clsx(
+      styles.page,
+      page.status === 'failed' || !page.url ? styles.pageFailed : styles.pageDone
+    )}
   >
     {page.status === 'failed' ? (
       <Tooltip content={failedTip}>
         <span className={styles.pageText}>{page.title}</span>
       </Tooltip>
-    ) : (
+    ) : page.url ? (
       <a className={styles.pageText} href={page.url} target="_blank" rel="noreferrer">
         {page.title}
       </a>
+    ) : (
+      <span className={styles.pageText}>{page.title}</span>
     )}
     <span className={styles.pageIcon}>
       <IconRightUpOutline14 />

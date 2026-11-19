@@ -4,11 +4,18 @@ declare const styles: {
   readonly "appName": string;
   readonly "newChat": string;
   readonly "newChatIcon": string;
+  readonly "searchBox": string;
+  readonly "searchIcon": string;
+  readonly "searchInput": string;
+  readonly "searchClear": string;
+  readonly "searchEmpty": string;
   readonly "listWrap": string;
   readonly "list": string;
   readonly "section": string;
   readonly "sectionHeader": string;
   readonly "bottom": string;
+  readonly "quickLinks": string;
+  readonly "quickLink": string;
   readonly "settings": string;
   readonly "settingsIcon": string;
   readonly "settingsLabel": string;

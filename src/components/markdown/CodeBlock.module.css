@@ -45,3 +45,43 @@
     height: 14px;
   }
 }
+
+.actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.wrapped {
+  white-space: pre-wrap !important;
+  word-break: break-word;
+}
+
+.collapsedWrap {
+  position: relative;
+
+  pre {
+    max-height: 360px;
+    overflow: hidden;
+  }
+}
+
+.expandButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 34px;
+  border: none;
+  border-top: 1px solid var(--dsw-alias-border-l1);
+  background: var(--dsw-alias-markdown-code-block-banner);
+  color: var(--dsw-alias-brand-text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+
+  &:hover {
+    background-color: var(--dsw-alias-interactive-bg-hover);
+  }
+}

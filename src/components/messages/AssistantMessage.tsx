@@ -44,7 +44,22 @@ export const AssistantMessage = memo(function AssistantMessage({
   onSelectVersion: SelectMessageVersion
 }) {
   const t = useTranslate()
+  const presets = useChatModels((state) => state.presets)
   const speechPreset = useChatModels((state) => state.presets.find((preset) => preset.id === state.selectedId))
+  const messagePreset = message.presetId
+    ? presets.find((preset) => preset.id === message.presetId)
+    : undefined
+  const modelBadge = messagePreset?.display_name || message.model || null
+  const effortLabel =
+    message.reasoningEffort === 'none'
+      ? t('reasoningEffortNone')
+      : message.reasoningEffort === 'low'
+        ? t('reasoningEffortLow')
+        : message.reasoningEffort === 'medium'
+          ? t('reasoningEffortMedium')
+          : message.reasoningEffort === 'high'
+            ? t('reasoningEffortHigh')
+            : null
   const view = useReplyView(message, streaming)
   const panelEntry = useSearchPanel((state) => state.entry)
   const notice = streaming ? null : describeReply(message)
@@ -155,6 +170,16 @@ export const AssistantMessage = memo(function AssistantMessage({
               }}
             />
           </div>
+          {modelBadge || effortLabel ? (
+            <div className={styles.metaBadges}>
+              {modelBadge ? <span className={styles.metaBadge}>{modelBadge}</span> : null}
+              {effortLabel ? (
+                <span className={styles.metaBadge}>
+                  {t('reasoningEffort')}: {effortLabel}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
           {isLast && canContinueReply(message) ? (
             <Button
               variant="outlined"

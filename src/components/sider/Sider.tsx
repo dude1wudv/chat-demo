@@ -1,11 +1,19 @@
 import clsx from 'clsx'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslate } from '../../i18n/index.js'
-import { IconPanelLeftOutline16, IconSettingsOutline16, NewChatIcon } from '../base/icons.js'
+import {
+  IconCloseFill14,
+  IconPanelLeftOutline16,
+  IconSettingsOutline16,
+  NewChatIcon,
+} from '../base/icons.js'
 import { setSiderCollapsed } from '../../services/settings.js'
 import { groupSessions } from '../../services/chat/sessionGroups.js'
 import { newChat, removeSession, useChatStore } from '../../services/chat/store.js'
 import type { SessionSummary } from '../../services/chat/types.js'
+import { navigateHost } from '../../services/sub2apiBridge.js'
+import { useChatModels } from '../../services/chat/models.js'
+import { FOCUS_SESSION_SEARCH_EVENT } from '../../app/useChatShortcuts.js'
 import { Button } from '../base/Button.js'
 import { IconButton } from '../base/IconButton.js'
 import { Modal } from '../base/Modal.js'
@@ -15,15 +23,36 @@ import { closeMobileSider, useMobileSider } from './mobileSiderState.js'
 import { SessionItem } from './SessionItem.js'
 import styles from './Sider.module.css'
 
-/** 展开的侧边栏：名称与收起按钮、开启新对话、按时间分组的会话列表、底部设置；移动端放在抽屉里，收起按钮关闭抽屉 */
+/** 展开的侧边栏：名称与收起按钮、开启新对话、搜索框、按时间分组的会话列表、底部快捷入口与设置；移动端放在抽屉里，收起按钮关闭抽屉 */
 export const Sider = ({ mobile = false }: { mobile?: boolean }) => {
   const t = useTranslate()
   const sessions = useChatStore((state) => state.sessions)
   const activeId = useChatStore((state) => state.activeId)
+  const connected = useChatModels((state) => state.connected)
   const [now, setNow] = useState(Date.now)
-  const groups = useMemo(() => groupSessions(sessions, now, t), [sessions, now, t])
+  const [query, setQuery] = useState('')
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const filteredSessions = useMemo(() => {
+    const trimmed = query.trim().toLocaleLowerCase()
+    if (!trimmed) {
+      return sessions
+    }
+    return sessions.filter((session) =>
+      (session.title || t('untitledChat')).toLocaleLowerCase().includes(trimmed)
+    )
+  }, [sessions, query, t])
+  const groups = useMemo(() => groupSessions(filteredSessions, now, t), [filteredSessions, now, t])
   const [deleting, setDeleting] = useState<SessionSummary | null>(null)
   const [deletePending, setDeletePending] = useState(false)
+
+  useEffect(() => {
+    const onFocusSearch = () => {
+      searchInputRef.current?.focus({ preventScroll: true })
+      searchInputRef.current?.select()
+    }
+    window.addEventListener(FOCUS_SESSION_SEARCH_EVENT, onFocusSearch)
+    return () => window.removeEventListener(FOCUS_SESSION_SEARCH_EVENT, onFocusSearch)
+  }, [])
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout>
@@ -74,24 +103,81 @@ export const Sider = ({ mobile = false }: { mobile?: boolean }) => {
         </span>
         {t('newChat')}
       </button>
+      <label className={styles.searchBox}>
+        <svg className={styles.searchIcon} viewBox="0 0 24 24" aria-hidden="true">
+          <circle cx="10.5" cy="10.5" r="6.5" />
+          <path d="m16 16 4 4" />
+        </svg>
+        <input
+          ref={searchInputRef}
+          type="search"
+          className={styles.searchInput}
+          aria-label={t('searchSessionsPlaceholder')}
+          placeholder={t('searchSessionsPlaceholder')}
+          value={query}
+          maxLength={128}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        {query ? (
+          <button
+            type="button"
+            className={styles.searchClear}
+            aria-label={t('close')}
+            onClick={() => {
+              setQuery('')
+              searchInputRef.current?.focus({ preventScroll: true })
+            }}
+          >
+            <IconCloseFill14 />
+          </button>
+        ) : null}
+      </label>
       <div className={styles.listWrap}>
         <div className={styles.list}>
-          {groups.map((group) => (
-            <div key={group.key} className={styles.section}>
-              <div className={styles.sectionHeader}>{group.label}</div>
-              {group.sessions.map((session) => (
-                <SessionItem
-                  key={session.id}
-                  session={session}
-                  active={session.id === activeId}
-                  onDelete={() => setDeleting(session)}
-                />
-              ))}
-            </div>
-          ))}
+          {groups.length > 0 ? (
+            groups.map((group) => (
+              <div key={group.key} className={styles.section}>
+                <div className={styles.sectionHeader}>{group.label}</div>
+                {group.sessions.map((session) => (
+                  <SessionItem
+                    key={session.id}
+                    session={session}
+                    active={session.id === activeId}
+                    onDelete={() => setDeleting(session)}
+                  />
+                ))}
+              </div>
+            ))
+          ) : query.trim() ? (
+            <div className={styles.searchEmpty}>{t('searchSessionsEmpty')}</div>
+          ) : null}
         </div>
       </div>
       <div className={styles.bottom}>
+        {connected ? (
+          <div className={styles.quickLinks}>
+            <button
+              type="button"
+              className={styles.quickLink}
+              onClick={() => {
+                closeMobileSider()
+                void navigateHost('/dashboard')
+              }}
+            >
+              {t('chatDashboard')}
+            </button>
+            <button
+              type="button"
+              className={styles.quickLink}
+              onClick={() => {
+                closeMobileSider()
+                void navigateHost('/chat-models')
+              }}
+            >
+              {t('chatModels')}
+            </button>
+          </div>
+        ) : null}
         <button type="button" className={styles.settings} onClick={() => openSettings('general')}>
           <span className={styles.settingsIcon}>
             <IconSettingsOutline16 />

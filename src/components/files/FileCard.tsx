@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import type { ReactNode } from 'react'
+import type { AnchorHTMLAttributes, ReactNode } from 'react'
 import { useTranslate } from '../../i18n/index.js'
 import { formatSize, getExtension } from '../../services/attachments.js'
 import { IconCloseFill14, IconRefreshOutline16 } from '../base/icons.js'
@@ -16,25 +16,29 @@ export const FileCard = ({
   size,
   status = 'done',
   error,
+  opening = false,
   onRetry,
   onRemove,
   onOpen,
+  link,
 }: {
   name: string
   size: number
   status?: 'uploading' | 'done' | 'error'
   error?: string
+  opening?: boolean
   onRetry?: () => void
   onRemove?: () => void
   onOpen?: () => void
+  link?: AnchorHTMLAttributes<HTMLAnchorElement>
 }) => {
   const t = useTranslate()
   const ext = getExtension(name)
   let icon: ReactNode = <FileIcon ext={ext} />
   let description = [ext, formatSize(size)].filter(Boolean).join(' ')
-  if (status === 'uploading') {
+  if (status === 'uploading' || opening) {
     icon = <span className={styles.spinner} />
-    description = t('uploadFileStatusUploading')
+    description = status === 'uploading' ? t('uploadFileStatusUploading') : t('attachmentOpening')
   } else if (status === 'error') {
     // 不可重试（过大、格式不支持）时保留文件图标并显示原因
     if (onRetry) {
@@ -42,14 +46,15 @@ export const FileCard = ({
     }
     description = error ?? t('uploadFileStatusFailed')
   }
-  const onClick = status === 'error' ? onRetry : status === 'done' ? onOpen : undefined
+  const fileLink = status === 'done' ? link : undefined
+  const onClick = status === 'error' ? onRetry : status === 'done' && !fileLink && !opening ? onOpen : undefined
   return (
     <div
       className={clsx(
         styles.card,
         onRemove && styles.editable,
         status === 'error' && (onRemove || onRetry) && styles.failed,
-        onClick && styles.clickable
+        (onClick || fileLink) && styles.clickable
       )}
       title={
         status === 'error'
@@ -65,6 +70,7 @@ export const FileCard = ({
         <div className={styles.caption}>{name}</div>
         <div className={styles.subCaption}>{description}</div>
       </div>
+      {fileLink ? <a {...fileLink} aria-label={name} /> : null}
       {onRemove ? (
         <button
           type="button"

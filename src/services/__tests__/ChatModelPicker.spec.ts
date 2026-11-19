@@ -102,4 +102,14 @@ describe('Chat model picker capability disclosure', () => {
     expect(document.querySelectorAll('[role="option"]')).toHaveLength(2)
     expect(document.querySelector('details')).toBeNull()
   })
+
+  it('displays default badge and capability pills on model options', async () => {
+    await mount()
+    await click(trigger())
+    const firstOption = document.querySelectorAll<HTMLButtonElement>('[role="option"]')[0]!
+    expect(firstOption.textContent).toContain('默认')
+    expect(firstOption.textContent).toContain('1x')
+    expect(firstOption.textContent).toContain('思考')
+    expect(firstOption.textContent).toContain('视觉')
+  })
 })

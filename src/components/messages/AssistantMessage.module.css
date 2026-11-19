@@ -104,6 +104,27 @@
   opacity: 1;
 }
 
+.metaBadges {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: 4px;
+}
+
+.metaBadge {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 6px;
+  background-color: var(--dsw-pill-bg);
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 11px;
+  line-height: 16px;
+  user-select: none;
+}
+
 .continueButton {
   margin-left: auto;
 }

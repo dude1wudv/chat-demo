@@ -79,11 +79,84 @@
   margin-right: 6px;
 }
 
+.searchBox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  height: 34px;
+  margin-top: 10px;
+  padding: 0 10px;
+  border-radius: 10px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  background-color: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-tertiary);
+  transition: border-color var(--ds-transition-duration) var(--ds-ease-in-out);
+
+  &:focus-within {
+    border-color: var(--dsw-alias-brand-primary);
+    color: var(--dsw-alias-brand-text);
+  }
+}
+
+.searchIcon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+}
+
+.searchInput {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 20px;
+
+  &::placeholder {
+    color: var(--dsw-alias-label-caption);
+  }
+
+  &::-webkit-search-cancel-button {
+    display: none;
+  }
+}
+
+.searchClear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+
+  &:hover {
+    color: var(--dsw-alias-label-primary);
+    background-color: var(--dsw-alias-interactive-bg-hover);
+  }
+}
+
+.searchEmpty {
+  padding: 24px 12px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
 .listWrap {
   position: relative;
   flex: 1;
   min-height: 0;
-  margin-top: 24px;
+  margin-top: 14px;
 }
 
 .list {
@@ -119,8 +192,42 @@
 
 .bottom {
   display: flex;
+  flex-direction: column;
+  gap: 6px;
   flex-shrink: 0;
-  height: 64px;
+  padding: 10px 0 12px;
+  border-top: 1px solid var(--dsw-alias-border-l1);
+}
+
+.quickLinks {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.quickLink {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--dsw-alias-border-l1);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-base);
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: background-color 0.2s, color 0.2s, border-color 0.2s;
+
+  &:hover {
+    background-color: var(--dsw-specific-sidebar-nav-item-hover);
+    color: var(--dsw-alias-label-primary);
+    border-color: var(--dsw-alias-border-l2);
+  }
 }
 
 .settings {

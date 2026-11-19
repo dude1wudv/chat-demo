@@ -1,15 +1,22 @@
 declare const styles: {
   readonly "wrapper": string;
+  readonly "emptyModels": string;
+  readonly "emptyModelsText": string;
   readonly "session": string;
   readonly "home": string;
   readonly "attachments": string;
   readonly "attachment": string;
+  readonly "attachmentFailed": string;
   readonly "remove": string;
+  readonly "invalidRemove": string;
   readonly "uploading": string;
   readonly "spin": string;
   readonly "failed": string;
+  readonly "failedStatic": string;
+  readonly "failedReason": string;
   readonly "textareaWrapper": string;
   readonly "textarea": string;
+  readonly "textareaHidden": string;
   readonly "mirror": string;
   readonly "functionRow": string;
   readonly "toggles": string;
@@ -17,6 +24,15 @@ declare const styles: {
   readonly "toggleLabel": string;
   readonly "toggle": string;
   readonly "selected": string;
+  readonly "thinkGroup": string;
+  readonly "thinkGroupSelected": string;
+  readonly "thinkMain": string;
+  readonly "effortTag": string;
+  readonly "effortTrigger": string;
+  readonly "effortMenu": string;
+  readonly "effortMenuHeader": string;
+  readonly "effortOption": string;
+  readonly "effortOptionActive": string;
   readonly "right": string;
   readonly "sendButton": string;
   readonly "disabled": string;

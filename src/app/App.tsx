@@ -26,6 +26,8 @@ import { closeMobileSider } from '../components/sider/mobileSiderState.js'
 import { MobileSider, Sider } from '../components/sider/Sider.js'
 import { useChatModels } from '../services/chat/models.js'
 import { retrySavePreferences } from '../services/settings.js'
+import { SessionSkeleton } from '../components/base/Skeleton.js'
+import { useChatShortcuts } from './useChatShortcuts.js'
 import styles from './App.module.css'
 
 export const App = () => {
@@ -60,6 +62,7 @@ export const App = () => {
   const activeId = useChatStore((state) => state.activeId)
 
   usePreventPageScroll(isMobile)
+  useChatShortcuts(isMobile)
 
   useEffect(() => {
     document.documentElement.lang = locale
@@ -87,10 +90,39 @@ export const App = () => {
       <div ref={frameRef} className={styles.frame}>
         {isMobile ? <MobileSider /> : siderCollapsed ? null : <Sider />}
         <main className={styles.main}>
-          {cloudError ? <div className={styles.saveError} role="alert"><span>{cloudError}</span><button type="button" onClick={() => { setCloudError(''); void reloadActiveSession() }}>{t('chatReload')}</button><button type="button" onClick={() => { setCloudError(''); void retrySavePreferences() }}>{t('chatRetryPreferences')}</button><button type="button" onClick={() => setCloudError('')}>{t('close')}</button></div> : null}
+          {cloudError ? (
+            <div className={styles.saveError} role="alert">
+              <span className={styles.errorText}>{cloudError}</span>
+              <div className={styles.errorActions}>
+                <Button
+                  variant="outlined"
+                  size="s"
+                  onClick={() => {
+                    setCloudError('')
+                    void reloadActiveSession()
+                  }}
+                >
+                  {t('chatReload')}
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="s"
+                  onClick={() => {
+                    setCloudError('')
+                    void retrySavePreferences()
+                  }}
+                >
+                  {t('chatRetryPreferences')}
+                </Button>
+                <Button variant="outlined" size="s" onClick={() => setCloudError('')}>
+                  {t('close')}
+                </Button>
+              </div>
+            </div>
+          ) : null}
           {saveError ? (
             <div className={styles.saveError} role="alert">
-              <span>{t('sessionSaveFailed')}</span>
+              <span className={styles.errorText}>{t('sessionSaveFailed')}</span>
               <Button
                 variant="outlined"
                 size="s"
@@ -106,13 +138,9 @@ export const App = () => {
             {!ready || (activeId !== null && !session) ? (
               <div className={styles.loadingView}>
                 {isMobile ? <MobileHeader /> : null}
-                <div className={styles.loadingState} role="status" aria-live="polite">
-                  <span>
-                    {(!ready ? initError : sessionLoadError)
-                      ? t(!ready ? 'sessionListLoadFailed' : 'sessionLoadFailed')
-                      : t('sessionLoading')}
-                  </span>
-                  {(!ready ? initError : sessionLoadError) ? (
+                {(!ready ? initError : sessionLoadError) ? (
+                  <div className={styles.loadingState} role="status" aria-live="polite">
+                    <span>{t(!ready ? 'sessionListLoadFailed' : 'sessionLoadFailed')}</span>
                     <Button
                       variant="outlined"
                       size="m"
@@ -126,8 +154,10 @@ export const App = () => {
                     >
                       {t('retry')}
                     </Button>
-                  ) : null}
-                </div>
+                  </div>
+                ) : (
+                  <SessionSkeleton label={t('sessionLoading')} />
+                )}
               </div>
             ) : session ? (
               <SessionView
