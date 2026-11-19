@@ -2,6 +2,10 @@ import clsx from 'clsx'
 import { useIsMobile } from '../../app/viewport.js'
 import { useTranslate } from '../../i18n/index.js'
 import type { Session } from '../../services/chat/types.js'
+import { downloadSessionMarkdown } from '../../services/chat/exportMarkdown.js'
+import { IconDownloadOutline16 } from '../base/icons.js'
+import { IconButton } from '../base/IconButton.js'
+import { showToast } from '../base/toastState.js'
 import { ChatInput } from '../chatInput/ChatInput.js'
 import { MessageList } from '../messages/MessageList.js'
 import { MobileHeader } from './MobileHeader.js'
@@ -28,6 +32,18 @@ export const SessionView = ({
         <div className={styles.header}>
           <div className={clsx(styles.title, siderCollapsed && styles.withCollapsedSider)}>
             {title}
+          </div>
+          <div className={styles.headerActions}>
+            <IconButton
+              size="m"
+              icon={<IconDownloadOutline16 />}
+              tooltip={t('exportMarkdown')}
+              tooltipPlacement="bottom"
+              onClick={() => {
+                downloadSessionMarkdown(session)
+                showToast({ key: 'exportMarkdownSuccess' })
+              }}
+            />
           </div>
         </div>
       )}

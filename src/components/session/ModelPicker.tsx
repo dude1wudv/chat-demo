@@ -63,10 +63,39 @@ export const ModelPicker = ({ sessionId, disabled, hasFiles }: { sessionId: stri
       {refreshError ? <p className={styles.notice} role="alert">{refreshError}</p> : null}
       {selected && !selected.available ? <p className={styles.notice} role="status">{selected.unavailable_reason || t('chatModelRequired')}</p> : null}
       <div className={styles.options} role="listbox" aria-label={t('chatModelList')}>
-        {filtered.map((preset) => <button key={preset.id} type="button" role="option" aria-selected={selectedId === preset.id} disabled={!preset.available} title={preset.unavailable_reason || preset.model} onClick={() => { setSessionPreset(sessionId, preset.id); close() }}>
-          <span className={styles.identity}><strong>{preset.display_name || preset.model}</strong><span>{preset.group.name} · #{preset.group_id}</span>{preset.display_name && preset.display_name !== preset.model ? <span>{preset.model}</span> : null}{!preset.available ? <span className={styles.unavailable}>{preset.unavailable_reason || t('chatModelUnavailable')}</span> : null}</span>
-          {selectedId === preset.id ? <IconCheckOutline16 /> : null}
-        </button>)}
+        {filtered.map((preset) => {
+          const caps: string[] = []
+          if (preset.capabilities.reasoning) { caps.push(t('modelCapThinking')) }
+          if (preset.capabilities.search) { caps.push(t('modelCapSearch')) }
+          if (preset.capabilities.image_input) { caps.push(t('modelCapVision')) }
+          if (preset.capabilities.document_input) { caps.push(t('modelCapDocument')) }
+          if (preset.capabilities.asr || preset.capabilities.tts) { caps.push(t('modelCapVoice')) }
+          const multiplier =
+            typeof preset.group.rate_multiplier === 'number' && preset.group.rate_multiplier > 0
+              ? `${preset.group.rate_multiplier}x`
+              : null
+          return (
+            <button key={preset.id} type="button" role="option" aria-selected={selectedId === preset.id} disabled={!preset.available} title={preset.unavailable_reason || preset.model} onClick={() => { setSessionPreset(sessionId, preset.id); close() }}>
+              <span className={styles.identity}>
+                <span className={styles.titleRow}>
+                  <strong>{preset.display_name || preset.model}</strong>
+                  {preset.is_default ? <span className={styles.defaultTag}>{t('modelDefaultTag')}</span> : null}
+                  {multiplier ? <span className={styles.multiplierTag}>{multiplier}</span> : null}
+                </span>
+                <span>{preset.group.name} · #{preset.group_id}{preset.display_name && preset.display_name !== preset.model ? ` · ${preset.model}` : ''}</span>
+                {caps.length > 0 ? (
+                  <span className={styles.capRow}>
+                    {caps.map((cap) => (
+                      <span key={cap} className={styles.capPill}>{cap}</span>
+                    ))}
+                  </span>
+                ) : null}
+                {!preset.available ? <span className={styles.unavailable}>{preset.unavailable_reason || t('chatModelUnavailable')}</span> : null}
+              </span>
+              {selectedId === preset.id ? <IconCheckOutline16 /> : null}
+            </button>
+          )
+        })}
         {!filtered.length ? <p className={styles.empty}>{t('chatModelNoMatch')}</p> : null}
       </div>
       {selected ? <AuxiliaryNotice caps={selected.capabilities} hasFiles={hasFiles} modelName={selected.display_name || selected.model} onToggle={setPricingExpanded} /> : null}

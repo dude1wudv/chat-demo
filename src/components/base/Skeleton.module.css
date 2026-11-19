@@ -1,0 +1,63 @@
+.wrap {
+  width: 100%;
+  max-width: 768px;
+  margin: 0 auto;
+  padding: 56px 24px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+.userRow {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.userBubble,
+.userBubbleShort,
+.line {
+  border-radius: 12px;
+  background-color: var(--dsw-alias-bg-skeleton);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+
+.userBubble {
+  width: 44%;
+  height: 44px;
+  border-radius: 16px;
+}
+
+.userBubbleShort {
+  width: 30%;
+  height: 40px;
+  border-radius: 16px;
+}
+
+.assistantBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.line {
+  height: 16px;
+  border-radius: 8px;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.48;
+  }
+  50% {
+    opacity: 0.92;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .userBubble,
+  .userBubbleShort,
+  .line {
+    animation: none;
+  }
+}

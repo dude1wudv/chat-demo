@@ -1,6 +1,6 @@
 {
   "name": "chat-demo",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Sub2API 同源宿主承载的云端聊天客户端。",
   "packageManager": "pnpm@9.15.9",
   "engines": { "node": ">=24 <25", "pnpm": ">=9 <10" },

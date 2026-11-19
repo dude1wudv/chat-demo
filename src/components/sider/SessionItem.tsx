@@ -1,11 +1,18 @@
 import clsx from 'clsx'
 import { memo, useState } from 'react'
 import { useTranslate } from '../../i18n/index.js'
-import { IconEditOutline16, IconEllipsisOutline16, IconTrashOutline16 } from '../base/icons.js'
-import { renameSession, selectSession } from '../../services/chat/store.js'
+import {
+  IconDownloadOutline16,
+  IconEditOutline16,
+  IconEllipsisOutline16,
+  IconTrashOutline16,
+} from '../base/icons.js'
+import { getOrLoadSession, renameSession, selectSession } from '../../services/chat/store.js'
+import { downloadSessionMarkdown } from '../../services/chat/exportMarkdown.js'
 import type { SessionSummary } from '../../services/chat/types.js'
 import { IconButton } from '../base/IconButton.js'
 import { Menu } from '../base/Menu.js'
+import { showToast } from '../base/toastState.js'
 import { closeMobileSider } from './mobileSiderState.js'
 import styles from './SessionItem.module.css'
 
@@ -64,6 +71,25 @@ export const SessionItem = memo(function SessionItem({
               label: t('sessionItemMenuRenameOption'),
               icon: <IconEditOutline16 />,
               onSelect: () => setEditing(true),
+            },
+            {
+              key: 'export',
+              label: t('exportMarkdown'),
+              icon: <IconDownloadOutline16 />,
+              onSelect: () => {
+                void getOrLoadSession(session.id)
+                  .then((full) => {
+                    if (!full) {
+                      showToast({ key: 'exportMarkdownFailed', type: 'error' })
+                      return
+                    }
+                    downloadSessionMarkdown(full)
+                    showToast({ key: 'exportMarkdownSuccess' })
+                  })
+                  .catch(() => {
+                    showToast({ key: 'exportMarkdownFailed', type: 'error' })
+                  })
+              },
             },
             {
               key: 'delete',

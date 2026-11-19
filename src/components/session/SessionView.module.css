@@ -8,11 +8,22 @@
 .header {
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   flex-shrink: 0;
-  height: 60px;
-  padding: 12px 18px 0;
+  height: 56px;
+  padding: 0 18px;
   box-sizing: border-box;
-  background: var(--dsw-alias-bg-base);
+  background: var(--dsw-surface-glass);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--dsw-alias-border-l1);
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
 }
 
 .title {
@@ -40,11 +51,11 @@
   width: calc(var(--message-list-max-width) - 64px);
   max-width: calc(100% - 32px);
   margin: auto auto 0;
+  padding-top: 12px;
   background: linear-gradient(
     to bottom,
     transparent 0%,
-    transparent 30%,
-    var(--dsw-alias-bg-base) 30%,
+    var(--dsw-alias-bg-base) 42%,
     var(--dsw-alias-bg-base) 100%
   );
 }

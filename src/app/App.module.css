@@ -25,11 +25,23 @@
   align-items: center;
   justify-content: center;
   flex-wrap: wrap;
-  gap: 12px;
-  padding: 12px 16px;
+  gap: 10px 12px;
+  padding: 10px 16px;
   color: var(--dsw-alias-label-primary);
-  background-color: var(--dsw-alias-bg-base);
-  font-size: 14px;
+  background-color: var(--dsw-card-bg);
+  border-bottom: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.errorText {
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.errorActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .loadingView {

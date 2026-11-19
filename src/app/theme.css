@@ -164,6 +164,12 @@ body {
   --dsw-specific-sidebar-fill: var(--dsw-static-neutral-bluish-50);
   --dsw-specific-sidebar-nav-item-active-accent: var(--dsw-static-blue-100);
   --dsw-specific-sidebar-nav-item-hover: var(--dsw-static-neutral-bluish-75);
+  --dsw-surface-glass: rgba(255, 255, 255, 0.84);
+  --dsw-focus-ring-soft: 0 0 0 3px rgba(57, 100, 254, 0.14);
+  --dsw-card-bg: rgba(249, 250, 251, 0.9);
+  --dsw-card-hover: var(--dsw-static-blue-50);
+  --dsw-pill-bg: var(--dsw-static-neutral-bluish-75);
+  --dsw-pill-text: var(--dsw-static-neutral-bluish-700);
 }
 
 body[data-ds-dark-theme] {
@@ -173,7 +179,7 @@ body[data-ds-dark-theme] {
   --dsw-alias-bg-skeleton: rgba(255, 255, 255, 0.08);
   --dsw-alias-border-inverted: rgba(255, 255, 255, 0.06);
   --dsw-alias-border-l1: rgba(255, 255, 255, 0.06);
-  --dsw-alias-border-l2-darkmode-thin: rgba(255, 255, 255, 0.06);
+  --dsw-alias-border-l2-darkmode-thin: rgba(255, 255, 255, 0.08);
   --dsw-alias-border-l2: rgba(255, 255, 255, 0.12);
   --dsw-alias-border-l3: rgba(255, 255, 255, 0.16);
   --dsw-alias-brand-primary-invert: var(--dsw-static-neutral-bluish-00);
@@ -215,6 +221,12 @@ body[data-ds-dark-theme] {
   --dsw-specific-sidebar-fill: var(--dsw-static-neutral-bluish-900);
   --dsw-specific-sidebar-nav-item-active-accent: var(--dsw-static-neutral-bluish-800);
   --dsw-specific-sidebar-nav-item-hover: var(--dsw-static-neutral-bluish-850);
+  --dsw-surface-glass: rgba(21, 21, 23, 0.84);
+  --dsw-focus-ring-soft: 0 0 0 3px rgba(103, 158, 254, 0.2);
+  --dsw-card-bg: rgba(33, 33, 35, 0.85);
+  --dsw-card-hover: rgba(40, 49, 66, 0.72);
+  --dsw-pill-bg: rgba(255, 255, 255, 0.08);
+  --dsw-pill-text: var(--dsw-static-neutral-bluish-300);
 }
 
 body {

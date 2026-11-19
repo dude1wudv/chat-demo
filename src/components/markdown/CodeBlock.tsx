@@ -12,17 +12,23 @@ import { copyText } from '../../utils/clipboard.js'
 import { MermaidDiagram } from './MermaidDiagram.js'
 import styles from './CodeBlock.module.css'
 
-/** 代码块标题栏：左侧语言名，右侧复制 */
+const COLLAPSE_LINE_THRESHOLD = 25
+
+/** 代码块标题栏：左侧语言名，右侧换行/复制 */
 const CodeInfoRow = ({
   code,
   infostring,
   showDiagram,
   onToggleDiagram,
+  wrapped,
+  onToggleWrap,
 }: {
   code: string
   infostring: string
   showDiagram: boolean
   onToggleDiagram?: () => void
+  wrapped?: boolean
+  onToggleWrap?: () => void
 }) => {
   const t = useTranslate()
   const [copied, setCopied] = useState(false)
@@ -50,21 +56,33 @@ const CodeInfoRow = ({
       ) : (
         <span className={styles.name}>{infostring}</span>
       )}
-      <button
-        type="button"
-        className={styles.button}
-        onClick={async () => {
-          if (!(await copyText(code))) {
-            showToast({ key: 'copyFailed' })
-            return
-          }
-          setCopied(true)
-          setTimeout(() => setCopied(false), 1500)
-        }}
-      >
-        {copied ? <IconCheckOutline16 /> : <IconCopyOutline16 />}
-        <span>{t(copied ? 'copied' : 'copy')}</span>
-      </button>
+      <div className={styles.actions}>
+        {onToggleWrap ? (
+          <button
+            type="button"
+            className={styles.button}
+            aria-pressed={wrapped}
+            onClick={onToggleWrap}
+          >
+            <span>{t(wrapped ? 'codeUnwrap' : 'codeWrap')}</span>
+          </button>
+        ) : null}
+        <button
+          type="button"
+          className={styles.button}
+          onClick={async () => {
+            if (!(await copyText(code))) {
+              showToast({ key: 'copyFailed' })
+              return
+            }
+            setCopied(true)
+            setTimeout(() => setCopied(false), 1500)
+          }}
+        >
+          {copied ? <IconCheckOutline16 /> : <IconCopyOutline16 />}
+          <span>{t(copied ? 'copied' : 'copy')}</span>
+        </button>
+      </div>
     </div>
   )
 }
@@ -79,8 +97,14 @@ export const CodeBlock = memo(function CodeBlock({
   infostring: string
   loading?: boolean
 }) {
+  const t = useTranslate()
   const isMermaid = infostring.toLowerCase() === 'mermaid'
   const [showDiagram, setShowDiagram] = useState(true)
+  const [wrapped, setWrapped] = useState(false)
+  const [expanded, setExpanded] = useState(false)
+  const lineCount = useMemo(() => (code ? code.split('\n').length : 0), [code])
+  const collapsible = !isMermaid && !loading && lineCount > COLLAPSE_LINE_THRESHOLD
+  const isCollapsed = collapsible && !expanded
   // 语言包注册在全局 Prism 上，每次渲染直接判断；加载完成后触发一次重渲染
   const rerender = useReducer((n: number) => n + 1, 0)[1]
   const lang = getHighlightLang(infostring)
@@ -111,12 +135,29 @@ export const CodeBlock = memo(function CodeBlock({
           infostring={infostring}
           showDiagram={showDiagram}
           onToggleDiagram={isMermaid ? () => setShowDiagram((show) => !show) : undefined}
+          wrapped={wrapped}
+          onToggleWrap={!(isMermaid && showDiagram) ? () => setWrapped((value) => !value) : undefined}
         />
       </div>
       {isMermaid && showDiagram ? (
         <MermaidDiagram code={code} loading={loading} />
       ) : (
-        <pre dangerouslySetInnerHTML={{ __html: renderedHtml }}></pre>
+        <div className={isCollapsed ? styles.collapsedWrap : undefined}>
+          <pre
+            className={wrapped ? styles.wrapped : undefined}
+            dangerouslySetInnerHTML={{ __html: renderedHtml }}
+          />
+          {collapsible ? (
+            <button
+              type="button"
+              className={styles.expandButton}
+              aria-expanded={expanded}
+              onClick={() => setExpanded((value) => !value)}
+            >
+              {expanded ? t('codeCollapse') : t('codeExpand', { count: lineCount })}
+            </button>
+          ) : null}
+        </div>
       )}
     </div>
   )

@@ -22,6 +22,7 @@ import {
   setLocale,
   setLocation,
   setThemePreference,
+  setTtsVoice,
   useSettings,
   type ThemePreference,
 } from '../../services/settings.js'
@@ -95,6 +96,7 @@ const SettingsContent = () => {
               <AccountActions />
               <ThemeSetting />
               <LocaleSetting />
+              <TtsVoiceSetting />
               <LocationSetting />
             </>
           ) : (
@@ -295,6 +297,28 @@ const LocaleSetting = () => {
             { value: 'en-US', label: t('settingsLocaleEnUS'), lang: 'en' },
           ]}
           onChange={setLocale}
+        />
+      }
+    />
+  )
+}
+
+const TtsVoiceSetting = () => {
+  const t = useTranslate()
+  const ttsVoice = useSettings((state) => state.ttsVoice)
+  return (
+    <SettingCell
+      label={t('settingsTtsVoice')}
+      status={null}
+      action={
+        <Select
+          ariaLabel={t('settingsTtsVoice')}
+          value={ttsVoice}
+          options={[
+            { value: 'stella', label: t('settingsTtsVoiceStella') },
+            { value: 'tide', label: t('settingsTtsVoiceTide') },
+          ]}
+          onChange={setTtsVoice}
         />
       }
     />
